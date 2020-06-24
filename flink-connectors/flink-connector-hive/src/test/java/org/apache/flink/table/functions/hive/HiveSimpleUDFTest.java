@@ -19,20 +19,25 @@
 package org.apache.flink.table.functions.hive;
 
 import org.apache.flink.table.api.DataTypes;
+import org.apache.flink.table.catalog.hive.client.HiveShim;
+import org.apache.flink.table.catalog.hive.client.HiveShimLoader;
+import org.apache.flink.table.functions.hive.util.TestHiveUDFArray;
 import org.apache.flink.table.types.DataType;
 
+import org.apache.hadoop.hive.ql.exec.UDF;
 import org.apache.hadoop.hive.ql.udf.UDFBase64;
 import org.apache.hadoop.hive.ql.udf.UDFBin;
 import org.apache.hadoop.hive.ql.udf.UDFConv;
 import org.apache.hadoop.hive.ql.udf.UDFJson;
-import org.apache.hadoop.hive.ql.udf.UDFMinute;
 import org.apache.hadoop.hive.ql.udf.UDFRand;
 import org.apache.hadoop.hive.ql.udf.UDFRegExpExtract;
+import org.apache.hadoop.hive.ql.udf.UDFToInteger;
 import org.apache.hadoop.hive.ql.udf.UDFUnhex;
 import org.apache.hadoop.hive.ql.udf.UDFWeekOfYear;
 import org.junit.Test;
 
 import java.io.UnsupportedEncodingException;
+import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.Timestamp;
 
@@ -43,6 +48,32 @@ import static org.junit.Assert.assertTrue;
  * Test for {@link HiveSimpleUDF}.
  */
 public class HiveSimpleUDFTest {
+	private static HiveShim hiveShim = HiveShimLoader.loadHiveShim(HiveShimLoader.getHiveVersion());
+
+	@Test
+	public void testBooleanUDF() {
+		HiveSimpleUDF udf = init(BooleanUDF.class, new DataType[]{ DataTypes.INT()});
+		assertTrue((boolean) udf.eval(1));
+	}
+
+	@Test
+	public void testFloatUDF() {
+		HiveSimpleUDF udf = init(FloatUDF.class, new DataType[]{ DataTypes.FLOAT()});
+		assertEquals(3.0f, (float) udf.eval(3.0f), 0);
+	}
+
+	@Test
+	public void testIntUDF() {
+		HiveSimpleUDF udf = init(IntUDF.class, new DataType[]{ DataTypes.INT()});
+		assertEquals(3, (int) udf.eval(3));
+	}
+
+	@Test
+	public void testStringUDF() {
+		HiveSimpleUDF udf = init(StringUDF.class, new DataType[]{ DataTypes.STRING()});
+		assertEquals("test", udf.eval("test"));
+	}
+
 	@Test
 	public void testUDFRand() {
 		HiveSimpleUDF udf = init(UDFRand.class, new DataType[0]);
@@ -119,20 +150,7 @@ public class HiveSimpleUDFTest {
 	}
 
 	@Test
-	public void testUDFMinute() {
-		HiveSimpleUDF udf = init(
-			UDFMinute.class,
-			new DataType[]{
-				DataTypes.STRING()
-			});
-
-		assertEquals(17, udf.eval("1969-07-20 20:17:40"));
-		assertEquals(17, udf.eval(Timestamp.valueOf("1969-07-20 20:17:40")));
-		assertEquals(58, udf.eval("12:58:59"));
-	}
-
-	@Test
-	public void testUDFWeekOfYear() {
+	public void testUDFWeekOfYear() throws FlinkHiveUDFException {
 		HiveSimpleUDF udf = init(
 			UDFWeekOfYear.class,
 			new DataType[]{
@@ -180,8 +198,54 @@ public class HiveSimpleUDFTest {
 		assertEquals("MySQL", new String((byte[]) udf.eval("4D7953514C"), "UTF-8"));
 	}
 
+	@Test
+	public void testUDFToInteger() {
+		HiveSimpleUDF udf = init(
+			UDFToInteger.class,
+			new DataType[]{
+				DataTypes.DECIMAL(5, 3)
+			});
+
+		assertEquals(1, udf.eval(BigDecimal.valueOf(1.1d)));
+	}
+
+	@Test
+	public void testUDFArray_singleArray() {
+		Double[] testInputs = new Double[] { 1.1d, 2.2d };
+
+		// input arg is a single array
+		HiveSimpleUDF udf = init(
+			TestHiveUDFArray.class,
+			new DataType[]{
+				DataTypes.ARRAY(DataTypes.DOUBLE())
+			});
+
+		assertEquals(3, udf.eval(1.1d, 2.2d));
+		assertEquals(3, udf.eval(testInputs));
+
+		// input is not a single array
+		udf = init(
+			TestHiveUDFArray.class,
+			new DataType[]{
+				DataTypes.INT(),
+				DataTypes.ARRAY(DataTypes.DOUBLE())
+			});
+
+		assertEquals(8, udf.eval(5, testInputs));
+
+		udf = init(
+			TestHiveUDFArray.class,
+			new DataType[]{
+				DataTypes.INT(),
+				DataTypes.ARRAY(DataTypes.DOUBLE()),
+				DataTypes.ARRAY(DataTypes.DOUBLE())
+			});
+
+		assertEquals(11, udf.eval(5, testInputs, testInputs));
+	}
+
 	protected static HiveSimpleUDF init(Class hiveUdfClass, DataType[] argTypes) {
-		HiveSimpleUDF udf = new HiveSimpleUDF(new HiveFunctionWrapper(hiveUdfClass.getName()));
+		HiveSimpleUDF udf = new HiveSimpleUDF(new HiveFunctionWrapper(hiveUdfClass.getName()), hiveShim);
 
 		// Hive UDF won't have literal args
 		udf.setArgumentTypesAndConstants(new Object[0], argTypes);
@@ -190,5 +254,41 @@ public class HiveSimpleUDFTest {
 		udf.open(null);
 
 		return udf;
+	}
+
+	/**
+	 * Boolean Test UDF.
+	 */
+	public static class BooleanUDF extends UDF {
+		public boolean evaluate(int content) {
+			return content == 1;
+		}
+	}
+
+	/**
+	 * Float Test UDF.
+	 */
+	public static class FloatUDF extends UDF {
+		public float evaluate(float content) {
+			return content;
+		}
+	}
+
+	/**
+	 * Int Test UDF.
+	 */
+	public static class IntUDF extends UDF {
+		public int evaluate(int content) {
+			return content;
+		}
+	}
+
+	/**
+	 * String Test UDF.
+	 */
+	public static class StringUDF extends UDF {
+		public String evaluate(String content) {
+			return content;
+		}
 	}
 }

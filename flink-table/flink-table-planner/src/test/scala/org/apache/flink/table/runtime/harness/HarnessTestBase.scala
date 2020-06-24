@@ -23,6 +23,7 @@ import java.util.{Comparator, Queue => JQueue}
 import org.apache.flink.api.common.time.Time
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo.{LONG_TYPE_INFO, STRING_TYPE_INFO}
 import org.apache.flink.api.common.typeinfo.TypeInformation
+import org.apache.flink.api.dag.Transformation
 import org.apache.flink.api.java.functions.KeySelector
 import org.apache.flink.api.java.typeutils.RowTypeInfo
 import org.apache.flink.streaming.api.operators.{AbstractUdfStreamOperator, OneInputStreamOperator}
@@ -31,11 +32,11 @@ import org.apache.flink.streaming.api.transformations._
 import org.apache.flink.streaming.api.watermark.Watermark
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord
 import org.apache.flink.streaming.util.{KeyedOneInputStreamOperatorTestHarness, OneInputStreamOperatorTestHarness, TestHarnessUtil}
-import org.apache.flink.table.api.StreamQueryConfig
+import org.apache.flink.table.api.TableConfig
 import org.apache.flink.table.api.dataview.DataView
 import org.apache.flink.table.codegen.GeneratedAggregationsFunction
 import org.apache.flink.table.functions.aggfunctions.{CountAggFunction, IntSumWithRetractAggFunction, LongMaxWithRetractAggFunction, LongMinWithRetractAggFunction}
-import org.apache.flink.table.functions.{AggregateFunction, UserDefinedFunction, UserFunctionsTypeHelper}
+import org.apache.flink.table.functions.{AggregateFunction, UserDefinedFunction, UserDefinedFunctionHelper}
 import org.apache.flink.table.runtime.aggregate.GeneratedAggregations
 import org.apache.flink.table.runtime.harness.HarnessTestBase.{RowResultSortComparator, RowResultSortComparatorWithWatermarks}
 import org.apache.flink.table.runtime.types.{CRow, CRowTypeInfo}
@@ -78,11 +79,11 @@ class HarnessTestBase extends StreamingWithStateTestBase {
 
   protected val minMaxAggregationStateType: RowTypeInfo =
     new RowTypeInfo(minMaxAggregates
-      .map(UserFunctionsTypeHelper.getAccumulatorTypeOfAggregateFunction(_)): _*)
+      .map(UserDefinedFunctionHelper.getAccumulatorTypeOfAggregateFunction(_)): _*)
 
   protected val sumAggregationStateType: RowTypeInfo =
     new RowTypeInfo(sumAggregates
-      .map(UserFunctionsTypeHelper.getAccumulatorTypeOfAggregateFunction(_)): _*)
+      .map(UserDefinedFunctionHelper.getAccumulatorTypeOfAggregateFunction(_)): _*)
 
   protected val minMaxFuncName = "MinMaxAggregateHelper"
   protected val sumFuncName = "SumAggregationHelper"
@@ -344,9 +345,9 @@ class HarnessTestBase extends StreamingWithStateTestBase {
   }
 
   private def extractExpectedTransformation(
-      transformation: StreamTransformation[_],
-      prefixOperatorName: String): StreamTransformation[_] = {
-    def extractFromInputs(inputs: StreamTransformation[_]*): StreamTransformation[_] = {
+      transformation: Transformation[_],
+      prefixOperatorName: String): Transformation[_] = {
+    def extractFromInputs(inputs: Transformation[_]*): Transformation[_] = {
       for (input <- inputs) {
         val t = extractExpectedTransformation(input, prefixOperatorName)
         if (t != null) {
@@ -365,7 +366,7 @@ class HarnessTestBase extends StreamingWithStateTestBase {
         }
       case union: UnionTransformation[_] => extractFromInputs(union.getInputs.toSeq: _*)
       case p: PartitionTransformation[_] => extractFromInputs(p.getInput)
-      case _: SourceTransformation[_] => null
+      case _: LegacySourceTransformation[_] => null
       case _ => throw new UnsupportedOperationException("This should not happen.")
     }
   }
@@ -407,12 +408,8 @@ class HarnessTestBase extends StreamingWithStateTestBase {
   }
 
   def getOperator(testHarness: OneInputStreamOperatorTestHarness[_, _])
-      : AbstractUdfStreamOperator[_, _] = {
-    val operatorField = classOf[OneInputStreamOperatorTestHarness[_, _]]
-      .getDeclaredField("oneInputOperator")
-    operatorField.setAccessible(true)
-    operatorField.get(testHarness).asInstanceOf[AbstractUdfStreamOperator[_, _]]
-  }
+  : AbstractUdfStreamOperator[_, _] =
+    testHarness.getOneInputOperator.asInstanceOf[AbstractUdfStreamOperator[_, _]]
 
   def verify(expected: JQueue[Object], actual: JQueue[Object]): Unit = {
     verify(expected, actual, new RowResultSortComparator)
@@ -491,11 +488,19 @@ object HarnessTestBase {
     }
   }
 
-  /**
-    * Test class used to test min and max retention time.
-    */
-  class TestStreamQueryConfig(min: Time, max: Time) extends StreamQueryConfig {
-    override def getMinIdleStateRetentionTime: Long = min.toMilliseconds
-    override def getMaxIdleStateRetentionTime: Long = max.toMilliseconds
+  class TestTableConfig extends TableConfig {
+
+    private var minIdleStateRetentionTime = 0L
+
+    private var maxIdleStateRetentionTime = 0L
+
+    override def getMinIdleStateRetentionTime: Long = minIdleStateRetentionTime
+
+    override def getMaxIdleStateRetentionTime: Long = maxIdleStateRetentionTime
+
+    override def setIdleStateRetentionTime(minTime: Time, maxTime: Time): Unit = {
+      minIdleStateRetentionTime = minTime.toMilliseconds
+      maxIdleStateRetentionTime = maxTime.toMilliseconds
+    }
   }
 }

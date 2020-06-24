@@ -33,13 +33,13 @@ import java.util.Objects;
  * window in window aggregation.
  */
 @Internal
-public class LocalReferenceExpression implements Expression {
+public class LocalReferenceExpression implements ResolvedExpression {
 
 	private final String name;
 
 	private final DataType dataType;
 
-	public LocalReferenceExpression(String name, DataType dataType) {
+	LocalReferenceExpression(String name, DataType dataType) {
 		this.name = Preconditions.checkNotNull(name);
 		this.dataType = Preconditions.checkNotNull(dataType);
 	}
@@ -48,8 +48,14 @@ public class LocalReferenceExpression implements Expression {
 		return name;
 	}
 
+	@Override
 	public DataType getOutputDataType() {
 		return dataType;
+	}
+
+	@Override
+	public List<ResolvedExpression> getResolvedChildren() {
+		return Collections.emptyList();
 	}
 
 	@Override
