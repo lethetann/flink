@@ -199,7 +199,9 @@ The following data types are supported:
 
 | Data Type | Remarks for Data Type |
 |:----------|:----------------------|
-| `STRING` | `CHAR` and `VARCHAR` are not supported yet. |
+| `CHAR` | |
+| `VARCHAR` | |
+| `STRING` | |
 | `BOOLEAN` | |
 | `BYTES` | `BINARY` and `VARBINARY` are not supported yet. |
 | `DECIMAL` | Supports fixed precision and scale. |
@@ -1348,15 +1350,21 @@ DataTypes.NULL()
 |`java.lang.Object` | X     | X      | *Default*                            |
 |*any class*        |       | (X)    | Any non-primitive type.              |
 
-Data Type Annotations
----------------------
+Data Type Extraction
+--------------------
 
 At many locations in the API, Flink tries to automatically extract data type from class information using
 reflection to avoid repetitive manual schema work. However, extracting a data type reflectively is not always
 successful because logical information might be missing. Therefore, it might be necessary to add additional
 information close to a class or field declaration for supporting the extraction logic.
 
-The following table lists classes that can be implicitly mapped to a data type without requiring further information:
+The following table lists classes that can be implicitly mapped to a data type without requiring further information.
+
+If you intend to implement classes in Scala, *it is recommended to use boxed types* (e.g. `java.lang.Integer`)
+instead of Scala's primitives. Scala's primitives (e.g. `Int` or `Double`) are compiled to JVM primitives (e.g.
+`int`/`double`) and result in `NOT NULL` semantics as shown in the table below. Furthermore, Scala primitives that
+are used in generics (e.g. `java.lang.Map[Int, Double]`) are erased during compilation and lead to class
+information similar to `java.lang.Map[java.lang.Object, java.lang.Object]`.
 
 | Class                       | Data Type                           |
 |:----------------------------|:------------------------------------|
