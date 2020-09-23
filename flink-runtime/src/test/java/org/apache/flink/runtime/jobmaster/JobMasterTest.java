@@ -86,7 +86,6 @@ import org.apache.flink.runtime.jobmanager.OnCompletionActions;
 import org.apache.flink.runtime.jobmanager.PartitionProducerDisposedException;
 import org.apache.flink.runtime.jobmanager.slots.TaskManagerGateway;
 import org.apache.flink.runtime.jobmaster.factories.UnregisteredJobManagerJobMetricGroupFactory;
-import org.apache.flink.runtime.jobmaster.slotpool.DefaultSchedulerFactory;
 import org.apache.flink.runtime.jobmaster.slotpool.DefaultSlotPoolFactory;
 import org.apache.flink.runtime.jobmaster.slotpool.PhysicalSlot;
 import org.apache.flink.runtime.jobmaster.slotpool.SlotInfoWithUtilization;
@@ -308,7 +307,6 @@ public class JobMasterTest extends TestLogger {
 				jobGraph,
 				haServices,
 				DefaultSlotPoolFactory.fromConfiguration(configuration),
-				DefaultSchedulerFactory.fromConfiguration(configuration),
 				jobManagerSharedServices,
 				heartbeatServices,
 				UnregisteredJobManagerJobMetricGroupFactory.INSTANCE,
@@ -319,7 +317,8 @@ public class JobMasterTest extends TestLogger {
 				NettyShuffleMaster.INSTANCE,
 				NoOpJobMasterPartitionTracker.FACTORY,
 				new DefaultExecutionDeploymentTracker(),
-				DefaultExecutionDeploymentReconciler::new) {
+				DefaultExecutionDeploymentReconciler::new,
+				System.currentTimeMillis()) {
 				@Override
 				public void declineCheckpoint(DeclineCheckpoint declineCheckpoint) {
 					declineCheckpointMessageFuture.complete(declineCheckpoint.getReason());
@@ -1660,7 +1659,6 @@ public class JobMasterTest extends TestLogger {
 			jobGraph,
 			haServices,
 			DefaultSlotPoolFactory.fromConfiguration(configuration),
-			DefaultSchedulerFactory.fromConfiguration(configuration),
 			jobManagerSharedServices,
 			heartbeatServices,
 			UnregisteredJobManagerJobMetricGroupFactory.INSTANCE,
@@ -1671,7 +1669,8 @@ public class JobMasterTest extends TestLogger {
 			NettyShuffleMaster.INSTANCE,
 			NoOpJobMasterPartitionTracker.FACTORY,
 			new DefaultExecutionDeploymentTracker(),
-			DefaultExecutionDeploymentReconciler::new) {
+			DefaultExecutionDeploymentReconciler::new,
+			System.currentTimeMillis()) {
 
 			@Override
 			public CompletableFuture<String> triggerSavepoint(

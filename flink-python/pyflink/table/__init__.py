@@ -57,6 +57,10 @@ Important classes of Flink Table API:
       user-defined function is executed, such as the metric group, and global job parameters, etc.
     - :class:`pyflink.table.ScalarFunction`
       Base interface for user-defined scalar function.
+    - :class:`pyflink.table.TableFunction`
+      Base interface for user-defined table function.
+    - :class:`pyflink.table.AggregateFunction`
+      Base interface for user-defined aggregate function.
     - :class:`pyflink.table.StatementSet`
       Base interface accepts DML statements or Tables.
 """
@@ -78,10 +82,11 @@ from pyflink.table.table_environment import (TableEnvironment, StreamTableEnviro
                                              BatchTableEnvironment)
 from pyflink.table.table_result import TableResult
 from pyflink.table.table_schema import TableSchema
-from pyflink.table.types import DataTypes, UserDefinedType, Row
-from pyflink.table.udf import FunctionContext, ScalarFunction
+from pyflink.table.types import DataTypes, UserDefinedType, Row, RowKind
+from pyflink.table.udf import FunctionContext, ScalarFunction, TableFunction, AggregateFunction
 
 __all__ = [
+    'AggregateFunction',
     'BatchTableEnvironment',
     'CsvTableSink',
     'CsvTableSource',
@@ -96,6 +101,7 @@ __all__ = [
     'OverWindowedTable',
     'ResultKind',
     'Row',
+    'RowKind',
     'ScalarFunction',
     'SqlDialect',
     'StatementSet',
@@ -103,6 +109,7 @@ __all__ = [
     'Table',
     'TableConfig',
     'TableEnvironment',
+    'TableFunction',
     'TableResult',
     'TableSchema',
     'TableSink',
