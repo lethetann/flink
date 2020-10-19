@@ -101,7 +101,8 @@ public class StreamTaskStateInitializerImplTest {
 			streamOperator,
 			typeSerializer,
 			closeableRegistry,
-			new UnregisteredMetricsGroup());
+			new UnregisteredMetricsGroup(),
+			1.0);
 
 		OperatorStateBackend operatorStateBackend = stateContext.operatorStateBackend();
 		CheckpointableKeyedStateBackend<?> keyedStateBackend = stateContext.keyedStateBackend();
@@ -212,7 +213,8 @@ public class StreamTaskStateInitializerImplTest {
 			streamOperator,
 			typeSerializer,
 			closeableRegistry,
-			new UnregisteredMetricsGroup());
+			new UnregisteredMetricsGroup(),
+			1.0);
 
 		OperatorStateBackend operatorStateBackend = stateContext.operatorStateBackend();
 		CheckpointableKeyedStateBackend<?> keyedStateBackend = stateContext.keyedStateBackend();
@@ -283,16 +285,19 @@ public class StreamTaskStateInitializerImplTest {
 		} else {
 			return new StreamTaskStateInitializerImpl(
 				dummyEnvironment,
-				stateBackend) {
-				@Override
-				protected <K> InternalTimeServiceManager<K> internalTimeServiceManager(
-					CheckpointableKeyedStateBackend<K> keyedStatedBackend,
-					KeyContext keyContext,
-					ProcessingTimeService processingTimeService,
-					Iterable<KeyGroupStatePartitionStreamProvider> rawKeyedStates) throws Exception {
-					return null;
-				}
-			};
+				stateBackend,
+				TtlTimeProvider.DEFAULT,
+				new InternalTimeServiceManager.Provider() {
+					@Override
+					public <K> InternalTimeServiceManager<K> create(
+							CheckpointableKeyedStateBackend<K> keyedStatedBackend,
+							ClassLoader userClassloader,
+							KeyContext keyContext,
+							ProcessingTimeService processingTimeService,
+							Iterable<KeyGroupStatePartitionStreamProvider> rawKeyedStates) throws Exception {
+						return null;
+					}
+				});
 		}
 	}
 }

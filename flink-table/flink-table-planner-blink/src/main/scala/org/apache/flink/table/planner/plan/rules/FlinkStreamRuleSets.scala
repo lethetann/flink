@@ -54,6 +54,8 @@ object FlinkStreamRuleSets {
     * can create new plan nodes.
     */
   val EXPAND_PLAN_RULES: RuleSet = RuleSets.ofList(
+    LogicalCorrelateToJoinFromTemporalTableRule.LOOKUP_JOIN_WITH_FILTER,
+    LogicalCorrelateToJoinFromTemporalTableRule.LOOKUP_JOIN_WITHOUT_FILTER,
     LogicalCorrelateToJoinFromTemporalTableRule.WITH_FILTER,
     LogicalCorrelateToJoinFromTemporalTableRule.WITHOUT_FILTER,
     LogicalCorrelateToJoinFromTemporalTableFunctionRule.INSTANCE)
@@ -359,6 +361,8 @@ object FlinkStreamRuleSets {
     PythonCorrelateSplitRule.INSTANCE,
     // merge calc after calc transpose
     FlinkCalcMergeRule.INSTANCE,
+    //Rule that rewrites temporal join with extracted primary key
+    TemporalJoinRewriteWithUniqueKeyRule.INSTANCE,
     // Rule that splits python ScalarFunctions from java/scala ScalarFunctions.
     PythonCalcSplitRule.SPLIT_CONDITION,
     PythonCalcSplitRule.SPLIT_PROJECT,
@@ -398,15 +402,19 @@ object FlinkStreamRuleSets {
     // group agg
     StreamExecGroupAggregateRule.INSTANCE,
     StreamExecGroupTableAggregateRule.INSTANCE,
+    StreamExecPythonGroupAggregateRule.INSTANCE,
     // over agg
     StreamExecOverAggregateRule.INSTANCE,
+    StreamExecPythonOverAggregateRule.INSTANCE,
     // window agg
     StreamExecGroupWindowAggregateRule.INSTANCE,
     StreamExecGroupWindowTableAggregateRule.INSTANCE,
+    StreamExecPythonGroupWindowAggregateRule.INSTANCE,
     // join
     StreamExecJoinRule.INSTANCE,
     StreamExecIntervalJoinRule.INSTANCE,
     StreamExecTemporalJoinRule.INSTANCE,
+    StreamExecLegacyTemporalJoinRule.INSTANCE,
     StreamExecLookupJoinRule.SNAPSHOT_ON_TABLESCAN,
     StreamExecLookupJoinRule.SNAPSHOT_ON_CALC_TABLESCAN,
     // CEP

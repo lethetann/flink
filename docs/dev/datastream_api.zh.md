@@ -231,7 +231,7 @@ just submitted. For instance, here is how to implement the semantics of
 {% highlight java %}
 final JobClient jobClient = env.executeAsync();
 
-final JobExecutionResult jobExecutionResult = jobClient.getJobExecutionResult(userClassloader).get();
+final JobExecutionResult jobExecutionResult = jobClient.getJobExecutionResult().get();
 {% endhighlight %}
 
 That last part about program execution is crucial to understanding when and how
@@ -275,7 +275,7 @@ public class WindowWordCount {
                 .socketTextStream("localhost", 9999)
                 .flatMap(new Splitter())
                 .keyBy(value -> value.f0)
-                .timeWindow(Time.seconds(5))
+                .window(TumblingProcessingTimeWindows.of(Time.seconds(5)))
                 .sum(1);
 
         dataStream.print();
@@ -312,7 +312,7 @@ object WindowWordCount {
     val counts = text.flatMap { _.toLowerCase.split("\\W+") filter { _.nonEmpty } }
       .map { (_, 1) }
       .keyBy(_._1)
-      .timeWindow(Time.seconds(5))
+      .window(TumblingProcessingTimeWindows.of(Time.seconds(5)))
       .sum(1)
 
     counts.print()

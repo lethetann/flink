@@ -21,6 +21,7 @@ package org.apache.flink.table.runtime.operators.python.aggregate;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.memory.DataInputDeserializer;
 import org.apache.flink.core.memory.DataOutputSerializer;
+import org.apache.flink.core.memory.ManagedMemoryUseCase;
 import org.apache.flink.python.PythonFunctionRunner;
 import org.apache.flink.python.PythonOptions;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
@@ -34,6 +35,7 @@ import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.data.StringData;
 import org.apache.flink.table.functions.python.PythonFunctionInfo;
 import org.apache.flink.table.planner.plan.utils.KeySelectorUtil;
+import org.apache.flink.table.planner.typeutils.DataViewUtils;
 import org.apache.flink.table.runtime.operators.python.scalar.PythonScalarFunctionOperatorTestBase;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.runtime.typeutils.RowDataSerializer;
@@ -278,6 +280,7 @@ public class PythonStreamGroupAggregateOperatorTest {
 				inputType,
 				outputType,
 				aggregateFunctions,
+				new DataViewUtils.DataViewSpec[0][0],
 				grouping,
 				indexOfCountStar,
 				generateUpdateBefore,
@@ -294,8 +297,7 @@ public class PythonStreamGroupAggregateOperatorTest {
 				outputType,
 				STREAM_GROUP_AGGREGATE_URN,
 				getUserDefinedFunctionsProto(),
-				FLINK_AGGREGATE_FUNCTION_INPUT_SCHEMA_CODER_URN,
-				FLINK_AGGREGATE_FUNCTION_OUTPUT_SCHEMA_CODER_URN,
+				FLINK_AGGREGATE_FUNCTION_SCHEMA_CODER_URN,
 				new HashMap<>(),
 				PythonTestUtils.createMockFlinkMetricContainer(),
 				getKeyedStateBackend(),
@@ -341,7 +343,7 @@ public class PythonStreamGroupAggregateOperatorTest {
 				1,
 				1,
 				0);
-		testHarness.getStreamConfig().setManagedMemoryFraction(0.5);
+		testHarness.getStreamConfig().setManagedMemoryFractionOperatorOfUseCase(ManagedMemoryUseCase.PYTHON, 0.5);
 		testHarness.setup(new RowDataSerializer(outputType));
 		return testHarness;
 	}

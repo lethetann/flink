@@ -22,6 +22,7 @@ import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.fnexecution.v1.FlinkFnApi;
 import org.apache.flink.python.env.PythonEnvironmentManager;
 import org.apache.flink.python.metric.FlinkMetricContainer;
+import org.apache.flink.runtime.memory.MemoryManager;
 import org.apache.flink.runtime.state.KeyedStateBackend;
 import org.apache.flink.streaming.api.runners.python.beam.BeamPythonFunctionRunner;
 import org.apache.flink.table.types.logical.RowType;
@@ -40,8 +41,7 @@ public class BeamTableStatefulPythonFunctionRunner extends BeamPythonFunctionRun
 
 	private final RowType inputType;
 	private final RowType outputType;
-	private final String inputCoderUrn;
-	private final String outputCoderUrn;
+	private final String coderUrn;
 	private final FlinkFnApi.UserDefinedAggregateFunctions userDefinedAggregateFunctions;
 
 	public BeamTableStatefulPythonFunctionRunner(
@@ -51,12 +51,13 @@ public class BeamTableStatefulPythonFunctionRunner extends BeamPythonFunctionRun
 			RowType outputType,
 			String functionUrn,
 			FlinkFnApi.UserDefinedAggregateFunctions userDefinedFunctions,
-			String inputCoderUrn,
-			String outputCoderUrn,
+			String coderUrn,
 			Map<String, String> jobOptions,
 			FlinkMetricContainer flinkMetricContainer,
 			KeyedStateBackend keyedStateBackend,
-			TypeSerializer keySerializer) {
+			TypeSerializer keySerializer,
+			MemoryManager memoryManager,
+			double managedMemoryFraction) {
 		super(
 			taskName,
 			environmentManager,
@@ -64,9 +65,10 @@ public class BeamTableStatefulPythonFunctionRunner extends BeamPythonFunctionRun
 			jobOptions,
 			flinkMetricContainer,
 			keyedStateBackend,
-			keySerializer);
-		this.inputCoderUrn = Preconditions.checkNotNull(inputCoderUrn);
-		this.outputCoderUrn = Preconditions.checkNotNull(outputCoderUrn);
+			keySerializer,
+			memoryManager,
+			managedMemoryFraction);
+		this.coderUrn = Preconditions.checkNotNull(coderUrn);
 		this.inputType = Preconditions.checkNotNull(inputType);
 		this.outputType = Preconditions.checkNotNull(outputType);
 		this.userDefinedAggregateFunctions = userDefinedFunctions;
@@ -79,11 +81,11 @@ public class BeamTableStatefulPythonFunctionRunner extends BeamPythonFunctionRun
 
 	@Override
 	protected RunnerApi.Coder getInputCoderProto() {
-		return getRowCoderProto(inputType, inputCoderUrn);
+		return getRowCoderProto(inputType, coderUrn);
 	}
 
 	@Override
 	protected RunnerApi.Coder getOutputCoderProto() {
-		return getRowCoderProto(outputType, outputCoderUrn);
+		return getRowCoderProto(outputType, coderUrn);
 	}
 }

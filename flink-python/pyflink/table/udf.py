@@ -24,7 +24,7 @@ from typing import Union, List, Type, Callable
 from pyflink.java_gateway import get_gateway
 from pyflink.metrics import MetricGroup
 from pyflink.table import Expression
-from pyflink.table.types import DataType, _to_java_type
+from pyflink.table.types import DataType, _to_java_type, _to_java_data_type
 from pyflink.util import utils
 
 __all__ = ['FunctionContext', 'AggregateFunction', 'ScalarFunction', 'TableFunction',
@@ -436,6 +436,10 @@ class UserDefinedAggregateFunctionWrapper(UserDefinedFunctionWrapper):
         super(UserDefinedAggregateFunctionWrapper, self).__init__(
             func, input_types, func_type, deterministic, name)
 
+        if accumulator_type is None and func_type == "general":
+            accumulator_type = func.get_accumulator_type()
+        if result_type is None:
+            result_type = func.get_result_type()
         if not isinstance(result_type, DataType):
             raise TypeError(
                 "Invalid returnType: returnType should be DataType but is {}".format(result_type))
@@ -451,8 +455,12 @@ class UserDefinedAggregateFunctionWrapper(UserDefinedFunctionWrapper):
             from pyflink.table.types import DataTypes
             self._accumulator_type = DataTypes.ARRAY(self._result_type)
 
-        j_result_type = _to_java_type(self._result_type)
-        j_accumulator_type = _to_java_type(self._accumulator_type)
+        if j_input_types is not None:
+            gateway = get_gateway()
+            j_input_types = utils.to_jarray(
+                gateway.jvm.DataType, [_to_java_data_type(i) for i in self._input_types])
+        j_result_type = _to_java_data_type(self._result_type)
+        j_accumulator_type = _to_java_data_type(self._accumulator_type)
 
         gateway = get_gateway()
         PythonAggregateFunction = gateway.jvm \

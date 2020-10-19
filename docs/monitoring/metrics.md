@@ -1097,15 +1097,35 @@ Metrics related to data exchange between task executors using netty network comm
   </thead>
   <tbody>
     <tr>
-      <th rowspan="2"><strong>TaskManager</strong></th>
-      <td rowspan="2">Status.Shuffle.Netty</td>
+      <th rowspan="6"><strong>TaskManager</strong></th>
+      <td rowspan="6">Status.Shuffle.Netty</td>
       <td>AvailableMemorySegments</td>
       <td>The number of unused memory segments.</td>
       <td>Gauge</td>
     </tr>
     <tr>
+      <td>UsedMemorySegments</td>
+      <td>The number of used memory segments.</td>
+      <td>Gauge</td>
+    </tr>
+    <tr>
       <td>TotalMemorySegments</td>
       <td>The number of allocated memory segments.</td>
+      <td>Gauge</td>
+    </tr>
+    <tr>
+      <td>AvailableMemory</td>
+      <td>The amount of unused memory in bytes.</td>
+      <td>Gauge</td>
+    </tr>
+    <tr>
+      <td>UsedMemory</td>
+      <td>The amount of used memory in bytes.</td>
+      <td>Gauge</td>
+    </tr>
+    <tr>
+      <td>TotalMemory</td>
+      <td>The amount of allocated memory in bytes.</td>
       <td>Gauge</td>
     </tr>
     <tr>
@@ -1334,7 +1354,7 @@ Metrics related to data exchange between task executors using netty network comm
     <tr>
       <th rowspan="2"><strong>Task</strong></th>
       <td>checkpointAlignmentTime</td>
-      <td>The time in nanoseconds that the last barrier alignment took to complete, or how long the current alignment has taken so far (in nanoseconds).</td>
+      <td>The time in nanoseconds that the last barrier alignment took to complete, or how long the current alignment has taken so far (in nanoseconds). This is the time between receiving first and the last checkpoint barrier. You can find more information in the [Monitoring State and Checkpoints section]({{ site.baseurl }}/ops/state/large_state_tuning.html#monitoring-state-and-checkpoints)</td>
       <td>Gauge</td>
     </tr>
     <tr>
