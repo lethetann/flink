@@ -28,13 +28,13 @@ import org.apache.flink.api.common.functions.Partitioner;
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.api.common.restartstrategy.RestartStrategies;
+import org.apache.flink.api.common.state.CheckpointListener;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.time.Time;
 import org.apache.flink.api.connector.source.Boundedness;
 import org.apache.flink.api.connector.source.ReaderOutput;
 import org.apache.flink.api.connector.source.Source;
-import org.apache.flink.api.connector.source.SourceEvent;
 import org.apache.flink.api.connector.source.SourceReader;
 import org.apache.flink.api.connector.source.SourceReaderContext;
 import org.apache.flink.api.connector.source.SourceSplit;
@@ -50,7 +50,6 @@ import org.apache.flink.configuration.TaskManagerOptions;
 import org.apache.flink.core.io.InputStatus;
 import org.apache.flink.core.io.SimpleVersionedSerializer;
 import org.apache.flink.runtime.concurrent.FutureUtils;
-import org.apache.flink.runtime.state.CheckpointListener;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
@@ -71,6 +70,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -211,6 +211,7 @@ public class UnalignedCheckpointITCase extends TestLogger {
 
 		final LocalStreamEnvironment env = StreamExecutionEnvironment.createLocalEnvironment(parallelism, conf);
 		env.enableCheckpointing(100);
+		env.getCheckpointConfig().setAlignmentTimeout(0);
 		env.setParallelism(parallelism);
 		env.setRestartStrategy(RestartStrategies.fixedDelayRestart(EXPECTED_FAILURES, Time.milliseconds(100)));
 		env.getCheckpointConfig().enableUnalignedCheckpoints(true);
@@ -307,7 +308,7 @@ public class UnalignedCheckpointITCase extends TestLogger {
 			}
 
 			@Override
-			public List<LongSplit> snapshotState() {
+			public List<LongSplit> snapshotState(long checkpointId) {
 				if (split == null) {
 					return Collections.emptyList();
 				}
@@ -327,8 +328,7 @@ public class UnalignedCheckpointITCase extends TestLogger {
 			}
 
 			@Override
-			public void handleSourceEvents(SourceEvent sourceEvent) {
-			}
+			public void notifyNoMoreSplits() {}
 
 			@Override
 			public void close() throws Exception {
@@ -367,8 +367,7 @@ public class UnalignedCheckpointITCase extends TestLogger {
 			}
 
 			@Override
-			public void handleSourceEvent(int subtaskId, SourceEvent sourceEvent) {
-			}
+			public void handleSplitRequest(int subtaskId, @Nullable String requesterHostname) {}
 
 			@Override
 			public void addSplitsBack(List<LongSplit> splits, int subtaskId) {

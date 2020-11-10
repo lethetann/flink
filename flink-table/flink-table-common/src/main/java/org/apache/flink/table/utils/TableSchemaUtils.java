@@ -26,7 +26,9 @@ import org.apache.flink.table.api.WatermarkSpec;
 import org.apache.flink.table.api.constraints.UniqueConstraint;
 import org.apache.flink.table.sinks.TableSink;
 import org.apache.flink.table.sources.TableSource;
+import org.apache.flink.table.types.FieldsDataType;
 import org.apache.flink.table.types.logical.RowType;
+import org.apache.flink.table.types.utils.DataTypeUtils;
 import org.apache.flink.util.Preconditions;
 
 import java.util.List;
@@ -69,18 +71,23 @@ public class TableSchemaUtils {
 	 * Creates a new {@link TableSchema} with the projected fields from another {@link TableSchema}.
 	 * The new {@link TableSchema} doesn't contain any primary key or watermark information.
 	 *
+	 * <p>When extracting the fields from the origin schema, the fields may get name conflicts in the
+	 * new schema. Considering that the path to the fields is unique in schema, use the path as the
+	 * new name to resolve the name conflicts in the new schema. If name conflicts still exists, it
+	 * will add postfix in the fashion "_$%d" to resolve.
+	 *
 	 * @see org.apache.flink.table.connector.source.abilities.SupportsProjectionPushDown
 	 */
 	public static TableSchema projectSchema(TableSchema tableSchema, int[][] projectedFields) {
 		checkArgument(containsPhysicalColumnsOnly(tableSchema), "Projection is only supported for physical columns.");
-		TableSchema.Builder schemaBuilder = TableSchema.builder();
-		List<TableColumn> tableColumns = tableSchema.getTableColumns();
-		for (int[] fieldPath : projectedFields) {
-			checkArgument(fieldPath.length == 1, "Nested projection push down is not supported yet.");
-			TableColumn column = tableColumns.get(fieldPath[0]);
-			schemaBuilder.field(column.getName(), column.getType());
+		TableSchema.Builder builder = TableSchema.builder();
+
+		FieldsDataType fields = (FieldsDataType) DataTypeUtils.projectRow(tableSchema.toRowDataType(), projectedFields);
+		RowType topFields = (RowType) fields.getLogicalType();
+		for (int i = 0; i < topFields.getFieldCount(); i++) {
+			builder.field(topFields.getFieldNames().get(i), fields.getChildren().get(i));
 		}
-		return schemaBuilder.build();
+		return builder.build();
 	}
 
 	/**
@@ -105,12 +112,11 @@ public class TableSchemaUtils {
 
 	/**
 	 * Returns the field indices of primary key in the physical columns of
-	 * this schema (not include computed columns).
+	 * this schema (not include computed columns or metadata columns).
 	 */
 	public static int[] getPrimaryKeyIndices(TableSchema schema) {
 		if (schema.getPrimaryKey().isPresent()) {
-			RowType physicalRowType = (RowType) schema.toPhysicalRowDataType().getLogicalType();
-			List<String> fieldNames = physicalRowType.getFieldNames();
+			List<String> fieldNames = DataTypeUtils.flattenToNames(schema.toPhysicalRowDataType());
 			return schema.getPrimaryKey().get().getColumns().stream()
 				.mapToInt(fieldNames::indexOf)
 				.toArray();

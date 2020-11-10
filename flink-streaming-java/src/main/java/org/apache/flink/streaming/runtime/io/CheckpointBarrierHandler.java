@@ -68,24 +68,16 @@ public abstract class CheckpointBarrierHandler implements Closeable {
 		this.toNotifyOnCheckpoint = checkNotNull(toNotifyOnCheckpoint);
 	}
 
-	public void releaseBlocksAndResetBarriers() throws IOException {
-	}
-
-	/**
-	 * Checks whether the channel with the given index is blocked.
-	 *
-	 * @param channelInfo The channel index to check.
-	 * @return True if the channel is blocked, false if not.
-	 */
-	public boolean isBlocked(InputChannelInfo channelInfo) {
-		return false;
-	}
-
 	@Override
 	public void close() throws IOException {
 	}
 
 	public abstract void processBarrier(CheckpointBarrier receivedBarrier, InputChannelInfo channelInfo) throws IOException;
+
+	public abstract void processBarrierAnnouncement(
+			CheckpointBarrier announcedBarrier,
+			int sequenceNumber,
+			InputChannelInfo channelInfo) throws IOException;
 
 	public abstract void processCancellationBarrier(CancelCheckpointMarker cancelBarrier) throws IOException;
 
@@ -167,9 +159,6 @@ public abstract class CheckpointBarrierHandler implements Closeable {
 	}
 
 	protected abstract boolean isCheckpointPending();
-
-	protected void abortPendingCheckpoint(long checkpointId, CheckpointException exception) throws IOException {
-	}
 
 	public void addProcessedBytes(int bytes) {
 		if (isDuringAlignment()) {

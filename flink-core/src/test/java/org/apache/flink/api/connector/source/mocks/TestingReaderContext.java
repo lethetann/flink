@@ -64,6 +64,14 @@ public class TestingReaderContext implements SourceReaderContext {
 	}
 
 	@Override
+	public int getIndexOfSubtask() {
+		return 0;
+	}
+
+	@Override
+	public void sendSplitRequest() {}
+
+	@Override
 	public void sendSourceEventToCoordinator(SourceEvent sourceEvent) {
 		sentEvents.add(sourceEvent);
 	}

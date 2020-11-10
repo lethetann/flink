@@ -44,7 +44,7 @@ interface RecoveredChannelStateHandler<Info, Context> extends AutoCloseable {
 
 	BufferWithContext<Context> getBuffer(Info info) throws IOException, InterruptedException;
 
-	void recover(Info info, Context context);
+	void recover(Info info, Context context) throws IOException;
 }
 
 class InputChannelRecoveredStateHandler implements RecoveredChannelStateHandler<InputChannelInfo, Buffer> {
@@ -86,9 +86,11 @@ class InputChannelRecoveredStateHandler implements RecoveredChannelStateHandler<
 class ResultSubpartitionRecoveredStateHandler implements RecoveredChannelStateHandler<ResultSubpartitionInfo, Tuple2<BufferBuilder, BufferConsumer>> {
 
 	private final ResultPartitionWriter[] writers;
+	private final boolean notifyAndBlockOnCompletion;
 
-	ResultSubpartitionRecoveredStateHandler(ResultPartitionWriter[] writers) {
+	ResultSubpartitionRecoveredStateHandler(ResultPartitionWriter[] writers, boolean notifyAndBlockOnCompletion) {
 		this.writers = writers;
+		this.notifyAndBlockOnCompletion = notifyAndBlockOnCompletion;
 	}
 
 	@Override
@@ -98,10 +100,13 @@ class ResultSubpartitionRecoveredStateHandler implements RecoveredChannelStateHa
 	}
 
 	@Override
-	public void recover(ResultSubpartitionInfo subpartitionInfo, Tuple2<BufferBuilder, BufferConsumer> bufferBuilderAndConsumer) {
+	public void recover(ResultSubpartitionInfo subpartitionInfo, Tuple2<BufferBuilder, BufferConsumer> bufferBuilderAndConsumer) throws IOException {
 		bufferBuilderAndConsumer.f0.finish();
 		if (bufferBuilderAndConsumer.f1.isDataAvailable()) {
-			getSubpartition(subpartitionInfo).addBufferConsumer(bufferBuilderAndConsumer.f1);
+			boolean added = getSubpartition(subpartitionInfo).add(bufferBuilderAndConsumer.f1, Integer.MIN_VALUE);
+			if (!added) {
+				throw new IOException("Buffer consumer couldn't be added to ResultSubpartition");
+			}
 		} else {
 			bufferBuilderAndConsumer.f1.close();
 		}
@@ -118,6 +123,11 @@ class ResultSubpartitionRecoveredStateHandler implements RecoveredChannelStateHa
 	}
 
 	@Override
-	public void close() {
+	public void close() throws IOException {
+		for (ResultPartitionWriter writer : writers) {
+			if (writer instanceof CheckpointedResultPartition) {
+				((CheckpointedResultPartition) writer).finishReadRecoveredState(notifyAndBlockOnCompletion);
+			}
+		}
 	}
 }

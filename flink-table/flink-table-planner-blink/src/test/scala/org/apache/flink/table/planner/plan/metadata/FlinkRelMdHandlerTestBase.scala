@@ -39,6 +39,7 @@ import org.apache.flink.table.planner.plan.`trait`.{FlinkRelDistribution, FlinkR
 import org.apache.flink.table.planner.plan.logical.{LogicalWindow, TumblingGroupWindow}
 import org.apache.flink.table.planner.plan.nodes.FlinkConventions
 import org.apache.flink.table.planner.plan.nodes.calcite._
+import org.apache.flink.table.planner.plan.nodes.exec.ExecEdge
 import org.apache.flink.table.planner.plan.nodes.logical._
 import org.apache.flink.table.planner.plan.nodes.physical.batch._
 import org.apache.flink.table.planner.plan.nodes.physical.stream._
@@ -52,6 +53,7 @@ import org.apache.flink.table.types.AtomicDataType
 import org.apache.flink.table.types.logical._
 import org.apache.flink.table.types.utils.TypeConversions
 import org.apache.flink.table.utils.CatalogManagerMocks
+
 import com.google.common.collect.{ImmutableList, Lists}
 import org.apache.calcite.jdbc.CalciteSchema
 import org.apache.calcite.plan._
@@ -71,7 +73,9 @@ import org.apache.calcite.sql.fun.{SqlCountAggFunction, SqlStdOperatorTable}
 import org.apache.calcite.sql.parser.SqlParserPos
 import org.apache.calcite.util._
 import org.junit.{Before, BeforeClass}
+
 import java.math.BigDecimal
+
 import java.util
 
 import scala.collection.JavaConversions._
@@ -635,7 +639,25 @@ class FlinkRelMdHandlerTestBase {
   //  select a, b, c, proctime
   //  ROW_NUMBER() over (partition by b, c order by proctime desc) rn from TemporalTable3
   // ) t where rn <= 1
-  protected lazy val (streamDeduplicateFirstRow, streamDeduplicateLastRow) = {
+  protected lazy val (streamProcTimeDeduplicateFirstRow, streamProcTimeDeduplicateLastRow) = {
+    buildFirstRowAndLastRowDeduplicateNode(false)
+  }
+
+  // equivalent SQL is
+  // select a, b, c from (
+  //  select a, b, c, rowtime
+  //  ROW_NUMBER() over (partition by b order by rowtime) rn from TemporalTable3
+  // ) t where rn <= 1
+  //
+  // select a, b, c from (
+  //  select a, b, c, rowtime
+  //  ROW_NUMBER() over (partition by b, c order by rowtime desc) rn from TemporalTable3
+  // ) t where rn <= 1
+  protected lazy val (streamRowTimeDeduplicateFirstRow, streamRowTimeDeduplicateLastRow) = {
+    buildFirstRowAndLastRowDeduplicateNode(true)
+  }
+
+  def buildFirstRowAndLastRowDeduplicateNode(isRowtime: Boolean): (RelNode, RelNode) = {
     val scan: StreamExecDataStreamScan =
       createDataStreamScan(ImmutableList.of("TemporalTable3"), streamPhysicalTraits)
     val hash1 = FlinkRelDistribution.hash(Array(1), requireStrict = true)
@@ -646,6 +668,7 @@ class FlinkRelMdHandlerTestBase {
       streamPhysicalTraits,
       streamExchange1,
       Array(1),
+      isRowtime,
       keepLastRow = false
     )
 
@@ -674,6 +697,7 @@ class FlinkRelMdHandlerTestBase {
       streamPhysicalTraits,
       streamExchange2,
       Array(1, 2),
+      isRowtime,
       keepLastRow = true
     )
     val calcOfLastRow = new StreamExecCalc(
@@ -687,25 +711,16 @@ class FlinkRelMdHandlerTestBase {
     (calcOfFirstRow, calcOfLastRow)
   }
 
-  // equivalent SQL is
-  // select a, b, c from (
-  //  select a, b, c, rowtime
-  //  ROW_NUMBER() over (partition by b order by rowtime) rn from TemporalTable3
-  // ) t where rn <= 1
-  protected lazy val rowtimeDeduplicate = {
-    val temporalLogicalScan: LogicalTableScan =
-      createDataStreamScan(ImmutableList.of("TemporalTable3"), logicalTraits)
-    new FlinkLogicalRank(
+  protected lazy val streamChangelogNormalize = {
+    val key = Array(1, 0)
+    val hash1 = FlinkRelDistribution.hash(key, requireStrict = true)
+    val streamExchange = new StreamExecExchange(
+      cluster, studentStreamScan.getTraitSet.replace(hash1), studentStreamScan, hash1)
+    new StreamExecChangelogNormalize(
       cluster,
-      flinkLogicalTraits,
-      temporalLogicalScan,
-      ImmutableBitSet.of(5),
-      RelCollations.of(4),
-      RankType.ROW_NUMBER,
-      new ConstantRankRange(1, 1),
-      new RelDataTypeFieldImpl("rk", 6, longType),
-      outputRankNumber = false
-    )
+      streamPhysicalTraits,
+      streamExchange,
+      key)
   }
 
   // equivalent SQL is
@@ -2402,7 +2417,9 @@ class FlinkRelMdHandlerTestBase {
   //   where a = b
   protected lazy val batchMultipleInput: RelNode = {
     val leftInput = createGlobalAgg("MyTable1", "b", "e")
+    val leftEdge = leftInput.getInputEdges.get(0)
     val rightInput = createGlobalAgg("MyTable4", "a", "c")
+    val rightEdge = rightInput.getInputEdges.get(0)
     val join = new BatchExecHashJoin(
       cluster,
       batchPhysicalTraits,
@@ -2416,13 +2433,22 @@ class FlinkRelMdHandlerTestBase {
       isBroadcast = false,
       tryDistinctBuildRow = false
     )
-   new BatchExecMultipleInputNode(
+   new BatchExecMultipleInput(
       cluster,
       batchPhysicalTraits,
       Array(leftInput.getInput, rightInput.getInput),
       join,
-      Array(0, 1)
-    )
+      Array(
+        ExecEdge.builder()
+          .requiredShuffle(leftEdge.getRequiredShuffle)
+          .damBehavior(leftEdge.getDamBehavior)
+          .priority(0)
+          .build(),
+        ExecEdge.builder()
+          .requiredShuffle(rightEdge.getRequiredShuffle)
+          .damBehavior(rightEdge.getDamBehavior)
+          .priority(1)
+          .build()))
   }
 
   private def createGlobalAgg(

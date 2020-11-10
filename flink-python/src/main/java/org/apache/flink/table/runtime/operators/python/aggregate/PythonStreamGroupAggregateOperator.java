@@ -45,8 +45,8 @@ import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.data.UpdatableRowData;
+import org.apache.flink.table.functions.python.PythonAggregateFunctionInfo;
 import org.apache.flink.table.functions.python.PythonEnv;
-import org.apache.flink.table.functions.python.PythonFunctionInfo;
 import org.apache.flink.table.planner.plan.utils.KeySelectorUtil;
 import org.apache.flink.table.planner.typeutils.DataViewUtils;
 import org.apache.flink.table.runtime.functions.CleanupState;
@@ -105,7 +105,7 @@ public class PythonStreamGroupAggregateOperator
 	 */
 	private final Map<String, String> jobOptions;
 
-	private final PythonFunctionInfo[] aggregateFunctions;
+	private final PythonAggregateFunctionInfo[] aggregateFunctions;
 
 	private final DataViewUtils.DataViewSpec[][] dataViewSpecs;
 
@@ -118,6 +118,11 @@ public class PythonStreamGroupAggregateOperator
 	 * The index of a count aggregate used to calculate the number of accumulated rows.
 	 */
 	private final int indexOfCountStar;
+
+	/**
+	 * True if the count(*) agg is inserted by the planner.
+	 */
+	private final boolean countStarInserted;
 
 	/**
 	 * Generate retract messages if true.
@@ -137,7 +142,14 @@ public class PythonStreamGroupAggregateOperator
 	/**
 	 * The maximum NUMBER of the states cached in Python side.
 	 */
-	private int stateCacheSize;
+	private final int stateCacheSize;
+
+	/**
+	 * The maximum number of cached entries in a single Python MapState.
+	 */
+	private final int mapStateReadCacheSize;
+
+	private final int mapStateWriteCacheSize;
 
 	/**
 	 * Indicates whether state cleaning is enabled. Can be calculated from the `minRetentionTime`.
@@ -198,10 +210,11 @@ public class PythonStreamGroupAggregateOperator
 			Configuration config,
 			RowType inputType,
 			RowType outputType,
-			PythonFunctionInfo[] aggregateFunctions,
+			PythonAggregateFunctionInfo[] aggregateFunctions,
 			DataViewUtils.DataViewSpec[][] dataViewSpecs,
 			int[] grouping,
 			int indexOfCountStar,
+			boolean countStarInserted,
 			boolean generateUpdateBefore,
 			long minRetentionTime,
 			long maxRetentionTime) {
@@ -213,10 +226,14 @@ public class PythonStreamGroupAggregateOperator
 		this.jobOptions = buildJobOptions(config);
 		this.grouping = grouping;
 		this.indexOfCountStar = indexOfCountStar;
+		this.countStarInserted = countStarInserted;
 		this.generateUpdateBefore = generateUpdateBefore;
 		this.minRetentionTime = minRetentionTime;
 		this.maxRetentionTime = maxRetentionTime;
 		this.stateCleaningEnabled = minRetentionTime > 1;
+		this.stateCacheSize = config.get(PythonOptions.STATE_CACHE_SIZE);
+		this.mapStateReadCacheSize = config.get(PythonOptions.MAP_STATE_READ_CACHE_SIZE);
+		this.mapStateWriteCacheSize = config.get(PythonOptions.MAP_STATE_WRITE_CACHE_SIZE);
 	}
 
 	/**
@@ -357,8 +374,12 @@ public class PythonStreamGroupAggregateOperator
 		if (config.containsKey("table.exec.timezone")) {
 			jobOptions.put("table.exec.timezone", config.getString("table.exec.timezone", null));
 		}
-		stateCacheSize = config.get(PythonOptions.STATE_CACHE_SIZE);
-		jobOptions.put(PythonOptions.STATE_CACHE_SIZE.key(), String.valueOf(stateCacheSize));
+		jobOptions.put(
+			PythonOptions.STATE_CACHE_SIZE.key(),
+			String.valueOf(config.get(PythonOptions.STATE_CACHE_SIZE)));
+		jobOptions.put(
+			PythonOptions.MAP_STATE_ITERATE_RESPONSE_BATCH_SIZE.key(),
+			String.valueOf(config.get(PythonOptions.MAP_STATE_ITERATE_RESPONSE_BATCH_SIZE)));
 		return jobOptions;
 	}
 
@@ -401,9 +422,12 @@ public class PythonStreamGroupAggregateOperator
 		builder.addAllGrouping(Arrays.stream(grouping).boxed().collect(Collectors.toList()));
 		builder.setGenerateUpdateBefore(generateUpdateBefore);
 		builder.setIndexOfCountStar(indexOfCountStar);
+		builder.setCountStarInserted(countStarInserted);
 		builder.setKeyType(toProtoType(getKeyType()));
 		builder.setStateCleaningEnabled(stateCleaningEnabled);
 		builder.setStateCacheSize(stateCacheSize);
+		builder.setMapStateReadCacheSize(mapStateReadCacheSize);
+		builder.setMapStateWriteCacheSize(mapStateWriteCacheSize);
 		return builder.build();
 	}
 }

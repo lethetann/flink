@@ -143,7 +143,9 @@ public abstract class YarnTestBase extends TestLogger {
 
 		Pattern.compile("org\\.apache\\.flink.util\\.FlinkException: Stopping JobMaster"),
 		Pattern.compile("org\\.apache\\.flink.util\\.FlinkException: JobManager is shutting down\\."),
-		Pattern.compile("lost the leadership.")
+		Pattern.compile("lost the leadership."),
+
+		Pattern.compile("akka.remote.transport.netty.NettyTransport.*Remote connection to \\[[^]]+\\] failed with java.io.IOException: Broken pipe")
 	};
 
 	// Temp directory which is deleted after the unit test.
@@ -685,6 +687,7 @@ public abstract class YarnTestBase extends TestLogger {
 
 			map.put("IN_TESTS", "yes we are in tests"); // see YarnClusterDescriptor() for more infos
 			map.put("YARN_CONF_DIR", targetTestClassesFolder.getAbsolutePath());
+			map.put("MAX_LOG_FILE_NUMBER", "10");
 			TestBaseUtils.setEnv(map);
 
 			Assert.assertTrue(yarnCluster.getServiceState() == Service.STATE.STARTED);
@@ -952,7 +955,7 @@ public abstract class YarnTestBase extends TestLogger {
 							CliFrontend cli = new CliFrontend(
 								configuration,
 								CliFrontend.loadCustomCommandLines(configuration, configurationDirectory));
-							returnValue = cli.parseParameters(args);
+							returnValue = cli.parseAndRun(args);
 						} catch (Exception e) {
 							throw new RuntimeException("Failed to execute the following args with CliFrontend: "
 								+ Arrays.toString(args), e);

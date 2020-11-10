@@ -23,6 +23,7 @@ import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ConfigOptions;
 import org.apache.flink.configuration.TaskManagerOptions;
+import org.apache.flink.configuration.description.Description;
 
 /**
  * Configuration options for the Python API.
@@ -122,11 +123,14 @@ public class PythonOptions {
 		.key("python.client.executable")
 		.stringType()
 		.defaultValue("python")
-		.withDescription("The python interpreter used to launch the python process when compiling " +
-			"the jobs containing Python UDFs. Equivalent to the environment variable PYFLINK_EXECUTABLE. " +
-			"The priority is as following: 1. the configuration 'python.client.executable' defined in " +
-			"the source code; 2. the environment variable PYFLINK_EXECUTABLE; 3. the configuration " +
-			"'python.client.executable' defined in flink-conf.yaml");
+		.withDescription(Description.builder()
+			.text("The path of the Python interpreter used to launch the Python process when submitting the "
+				+ "Python jobs via \"flink run\" or compiling the Java/Scala jobs containing Python UDFs. "
+				+ "Equivalent to the environment variable PYFLINK_CLIENT_EXECUTABLE. "
+				+ "The priority is as following: ").linebreak()
+			.text("1. the configuration 'python.client.executable' defined in the source code;").linebreak()
+			.text("2. the environment variable PYFLINK_CLIENT_EXECUTABLE;").linebreak()
+			.text("3. the configuration 'python.client.executable' defined in flink-conf.yaml").build());
 
 	/**
 	 * Whether the memory used by the Python framework is managed memory.
@@ -144,8 +148,43 @@ public class PythonOptions {
 	 */
 	@Experimental
 	public static final ConfigOption<Integer> STATE_CACHE_SIZE = ConfigOptions
-		.key("python.state.cache.size")
+		.key("python.state.cache-size")
 		.defaultValue(1000)
 		.withDescription("The maximum number of states cached in a Python UDF worker. Note that this " +
 			"is an experimental flag and might not be available in future releases.");
+
+	/**
+	 * The maximum number of cached items which read from Java side in a Python MapState.
+	 */
+	@Experimental
+	public static final ConfigOption<Integer> MAP_STATE_READ_CACHE_SIZE = ConfigOptions
+		.key("python.map-state.read-cache-size")
+		.defaultValue(1000)
+		.withDescription("The maximum number of cached entries for a single Python MapState. " +
+			"Note that this is an experimental flag and might not be available in future releases.");
+
+	/**
+	 * The maximum number of write requests cached in a Python MapState.
+	 */
+	@Experimental
+	public static final ConfigOption<Integer> MAP_STATE_WRITE_CACHE_SIZE = ConfigOptions
+		.key("python.map-state.write-cache-size")
+		.defaultValue(1000)
+		.withDescription("The maximum number of cached write requests for a single Python " +
+			"MapState. The write requests will be flushed to the state backend (managed in " +
+			"the Java operator) when the number of cached write requests exceed this limit. " +
+			"Note that this is an experimental flag and might not be available in future " +
+			"releases.");
+
+	/**
+	 * The maximum number of entries sent to Python UDF worker per request when iterating a Python MapState.
+	 */
+	@Experimental
+	public static final ConfigOption<Integer> MAP_STATE_ITERATE_RESPONSE_BATCH_SIZE = ConfigOptions
+		.key("python.map-state.iterate-response-batch-size")
+		.defaultValue(1000)
+		.withDescription("The maximum number of the MapState keys/entries sent to Python UDF worker " +
+			"in each batch when iterating a Python MapState. Note that this is an experimental flag " +
+			"and might not be available " +
+			"in future releases.");
 }

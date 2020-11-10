@@ -32,6 +32,7 @@ import org.apache.flink.runtime.executiongraph.Execution;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
+import org.apache.flink.runtime.executiongraph.utils.SimpleAckingTaskManagerGateway;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.jobgraph.tasks.CheckpointCoordinatorConfiguration;
@@ -39,7 +40,7 @@ import org.apache.flink.runtime.jobgraph.tasks.CheckpointCoordinatorConfiguratio
 import org.apache.flink.runtime.messages.checkpoint.AcknowledgeCheckpoint;
 import org.apache.flink.runtime.messages.checkpoint.DeclineCheckpoint;
 import org.apache.flink.runtime.state.CheckpointMetadataOutputStream;
-import org.apache.flink.runtime.state.CheckpointStorage;
+import org.apache.flink.runtime.state.CheckpointStorageAccess;
 import org.apache.flink.runtime.state.CheckpointStorageLocation;
 import org.apache.flink.runtime.state.IncrementalRemoteKeyedStateHandle;
 import org.apache.flink.runtime.state.KeyGroupRange;
@@ -53,7 +54,7 @@ import org.apache.flink.runtime.state.StateHandleID;
 import org.apache.flink.runtime.state.StreamStateHandle;
 import org.apache.flink.runtime.state.filesystem.FileStateHandle;
 import org.apache.flink.runtime.state.memory.ByteStreamStateHandle;
-import org.apache.flink.runtime.state.memory.MemoryBackendCheckpointStorage;
+import org.apache.flink.runtime.state.memory.MemoryBackendCheckpointStorageAccess;
 import org.apache.flink.runtime.state.memory.MemoryStateBackend;
 import org.apache.flink.runtime.state.memory.NonPersistentMetadataCheckpointStorageLocation;
 import org.apache.flink.runtime.state.testutils.TestCompletedCheckpointStorageLocation;
@@ -94,6 +95,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.apache.flink.runtime.checkpoint.CheckpointCoordinatorTestingUtils.mockExecutionJobVertex;
@@ -2333,8 +2335,8 @@ public class CheckpointCoordinatorTest extends TestLogger {
 		OperatorID opID2 = OperatorID.fromJobVertexID(vertex2.getJobvertexId());
 		TaskStateSnapshot taskOperatorSubtaskStates1 = new TaskStateSnapshot();
 		TaskStateSnapshot taskOperatorSubtaskStates2 = new TaskStateSnapshot();
-		OperatorSubtaskState subtaskState1 = new OperatorSubtaskState();
-		OperatorSubtaskState subtaskState2 = new OperatorSubtaskState();
+		OperatorSubtaskState subtaskState1 = OperatorSubtaskState.builder().build();
+		OperatorSubtaskState subtaskState2 = OperatorSubtaskState.builder().build();
 		taskOperatorSubtaskStates1.putSubtaskStateByOperatorID(opID1, subtaskState1);
 		taskOperatorSubtaskStates1.putSubtaskStateByOperatorID(opID2, subtaskState2);
 
@@ -2456,8 +2458,8 @@ public class CheckpointCoordinatorTest extends TestLogger {
 		OperatorID opID2 = OperatorID.fromJobVertexID(vertex2.getJobvertexId());
 		TaskStateSnapshot taskOperatorSubtaskStates1 = new TaskStateSnapshot();
 		TaskStateSnapshot taskOperatorSubtaskStates2 = new TaskStateSnapshot();
-		OperatorSubtaskState subtaskState1 = new OperatorSubtaskState();
-		OperatorSubtaskState subtaskState2 = new OperatorSubtaskState();
+		OperatorSubtaskState subtaskState1 = OperatorSubtaskState.builder().build();
+		OperatorSubtaskState subtaskState2 = OperatorSubtaskState.builder().build();
 		taskOperatorSubtaskStates1.putSubtaskStateByOperatorID(opID1, subtaskState1);
 		taskOperatorSubtaskStates2.putSubtaskStateByOperatorID(opID2, subtaskState2);
 
@@ -2485,8 +2487,8 @@ public class CheckpointCoordinatorTest extends TestLogger {
 
 				// Throw exception when finalizing the checkpoint.
 				@Override
-				public CheckpointStorage createCheckpointStorage(JobID jobId) throws IOException {
-					return new MemoryBackendCheckpointStorage(jobId, null, null, 100) {
+				public CheckpointStorageAccess createCheckpointStorage(JobID jobId) throws IOException {
+					return new MemoryBackendCheckpointStorageAccess(jobId, null, null, 100) {
 						@Override
 						public CheckpointStorageLocation initializeLocationForCheckpoint(long checkpointId) throws IOException {
 							return new NonPersistentMetadataCheckpointStorageLocation(1000) {
@@ -2558,6 +2560,57 @@ public class CheckpointCoordinatorTest extends TestLogger {
 
 		assertTrue(checkpointFuture.isCompletedExceptionally());
 		assertTrue(checkpointCoordinator.getSuccessfulCheckpoints().isEmpty());
+	}
+
+	@Test
+	public void testNotifyCheckpointAbortionInOperatorCoordinator() throws Exception {
+		JobID jobId = new JobID();
+		final ExecutionAttemptID attemptID = new ExecutionAttemptID();
+		ExecutionVertex executionVertex = mockExecutionVertex(attemptID);
+
+		CheckpointCoordinatorTestingUtils.MockOperatorCoordinatorCheckpointContext context =
+				new CheckpointCoordinatorTestingUtils.MockOperatorCheckpointCoordinatorContextBuilder()
+					.setOperatorID(new OperatorID())
+					.setOnCallingCheckpointCoordinator((ignored, future) -> future.complete(new byte[0]))
+					.build();
+
+		// set up the coordinator and validate the initial state
+		CheckpointCoordinator checkpointCoordinator = new CheckpointCoordinatorBuilder()
+				.setJobId(jobId)
+				.setTasks(new ExecutionVertex[]{executionVertex})
+				.setCheckpointCoordinatorConfiguration(
+						CheckpointCoordinatorConfiguration
+							  .builder()
+							  .setMaxConcurrentCheckpoints(Integer.MAX_VALUE)
+							  .build())
+				.setTimer(manuallyTriggeredScheduledExecutor)
+				.setCoordinatorsToCheckpoint(Collections.singleton(context))
+				.build();
+		try {
+			// Trigger checkpoint 1.
+			checkpointCoordinator.triggerCheckpoint(false);
+			manuallyTriggeredScheduledExecutor.triggerAll();
+			long checkpointId1 = Collections.max(checkpointCoordinator
+														 .getPendingCheckpoints()
+														 .keySet());
+			// Trigger checkpoint 2.
+			checkpointCoordinator.triggerCheckpoint(false);
+			manuallyTriggeredScheduledExecutor.triggerAll();
+
+			// Acknowledge checkpoint 2. This should abort checkpoint 1.
+			long checkpointId2 = Collections.max(checkpointCoordinator
+														 .getPendingCheckpoints()
+														 .keySet());
+			AcknowledgeCheckpoint acknowledgeCheckpoint1 = new AcknowledgeCheckpoint(
+					jobId, attemptID, checkpointId2, new CheckpointMetrics(), null);
+			checkpointCoordinator.receiveAcknowledgeMessage(acknowledgeCheckpoint1, "");
+
+			// OperatorCoordinator should have been notified of the abortion of checkpoint 1.
+			assertEquals(Collections.singletonList(1L), context.getAbortedCheckpoints());
+			assertEquals(Collections.singletonList(2L), context.getCompletedCheckpoints());
+		} finally {
+			checkpointCoordinator.shutdown(JobStatus.FINISHED);
+		}
 	}
 
 	private CheckpointCoordinator getCheckpointCoordinator(
@@ -2689,11 +2742,7 @@ public class CheckpointCoordinatorTest extends TestLogger {
 					spy(new ByteStreamStateHandle("meta", new byte[]{'m'}))));
 
 			OperatorSubtaskState operatorSubtaskState =
-				spy(new OperatorSubtaskState(
-					StateObjectCollection.empty(),
-					StateObjectCollection.empty(),
-					StateObjectCollection.singleton(managedState),
-					StateObjectCollection.empty()));
+				spy(OperatorSubtaskState.builder().setManagedKeyedState(managedState).build());
 
 			Map<OperatorID, OperatorSubtaskState> opStates = new HashMap<>();
 

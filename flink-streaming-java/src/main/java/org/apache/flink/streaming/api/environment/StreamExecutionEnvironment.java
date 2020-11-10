@@ -37,6 +37,7 @@ import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.connector.source.Boundedness;
 import org.apache.flink.api.connector.source.Source;
+import org.apache.flink.api.connector.source.lib.NumberSequenceSource;
 import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.api.java.ClosureCleaner;
 import org.apache.flink.api.java.Utils;
@@ -48,6 +49,7 @@ import org.apache.flink.api.java.typeutils.PojoTypeInfo;
 import org.apache.flink.api.java.typeutils.ResultTypeQueryable;
 import org.apache.flink.api.java.typeutils.TypeExtractor;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.CoreOptions;
 import org.apache.flink.configuration.DeploymentOptions;
 import org.apache.flink.configuration.ExecutionOptions;
 import org.apache.flink.configuration.PipelineOptions;
@@ -524,6 +526,22 @@ public class StreamExecutionEnvironment {
 	}
 
 	/**
+	 * Returns whether Unaligned Checkpoints are enabled.
+	 */
+	@PublicEvolving
+	public boolean isUnalignedCheckpointsEnabled() {
+		return checkpointCfg.isUnalignedCheckpointsEnabled();
+	}
+
+	/**
+	 * Returns whether Unaligned Checkpoints are force-enabled.
+	 */
+	@PublicEvolving
+	public boolean isForceUnalignedCheckpoints() {
+		return checkpointCfg.isForceUnalignedCheckpoints();
+	}
+
+	/**
 	 * Returns the checkpointing mode (exactly-once vs. at-least-once).
 	 *
 	 * <p>Shorthand for {@code getCheckpointConfig().getCheckpointingMode()}.
@@ -843,12 +861,44 @@ public class StreamExecutionEnvironment {
 	 * @param to
 	 * 		The number to stop at (inclusive)
 	 * @return A data stream, containing all number in the [from, to] interval
+	 * @deprecated Use {@link #fromSequence(long, long)} instead to create a new data stream
+	 * that contains {@link org.apache.flink.api.connector.source.lib.NumberSequenceSource}.
 	 */
+	@Deprecated
 	public DataStreamSource<Long> generateSequence(long from, long to) {
 		if (from > to) {
 			throw new IllegalArgumentException("Start of sequence must not be greater than the end");
 		}
-		return addSource(new StatefulSequenceSource(from, to), "Sequence Source");
+		return addSource(new StatefulSequenceSource(from, to), "Sequence Source (Deprecated)");
+	}
+
+	/**
+	 * Creates a new data stream that contains a sequence of numbers (longs) and is useful for
+	 * testing and for cases that just need a stream of N events of any kind.
+	 *
+	 * <p>The generated source splits the sequence into as many parallel sub-sequences as there are
+	 * parallel source readers. Each sub-sequence will be produced in order. If the parallelism is
+	 * limited to one, the source will produce one sequence in order.
+	 *
+	 * <p>This source is always bounded. For very long sequences (for example over the entire domain
+	 * of long integer values), you may consider executing the application in a streaming manner
+	 * because of the end bound that is pretty far away.
+	 *
+	 * <p>Use {@link #fromSource(Source, WatermarkStrategy, String)} together with
+	 * {@link NumberSequenceSource} if you required more control over the created sources. For
+	 * example, if you want to set a {@link WatermarkStrategy}.
+	 *
+	 * @param from The number to start at (inclusive)
+	 * @param to The number to stop at (inclusive)
+	 */
+	public DataStreamSource<Long> fromSequence(long from, long to) {
+		if (from > to) {
+			throw new IllegalArgumentException("Start of sequence must not be greater than the end");
+		}
+		return fromSource(
+				new NumberSequenceSource(from, to),
+				WatermarkStrategy.noWatermarks(),
+				"Sequence Source");
 	}
 
 	/**
@@ -1994,9 +2044,27 @@ public class StreamExecutionEnvironment {
 	 * executed.
 	 */
 	public static StreamExecutionEnvironment getExecutionEnvironment() {
+		return getExecutionEnvironment(new Configuration());
+	}
+
+	/**
+	 * Creates an execution environment that represents the context in which the
+	 * program is currently executed. If the program is invoked standalone, this
+	 * method returns a local execution environment, as returned by
+	 * {@link #createLocalEnvironment(Configuration)}.
+	 *
+	 * <p>When executed from the command line the given configuration is stacked on top of the
+	 * global configuration which comes from the {@code flink-conf.yaml}, potentially overriding
+	 * duplicated options.
+	 *
+	 * @param configuration The configuration to instantiate the environment with.
+	 * @return The execution environment of the context in which the program is
+	 * executed.
+	 */
+	public static StreamExecutionEnvironment getExecutionEnvironment(Configuration configuration) {
 		return Utils.resolveFactory(threadLocalContextEnvironmentFactory, contextEnvironmentFactory)
-			.map(StreamExecutionEnvironmentFactory::createExecutionEnvironment)
-			.orElseGet(StreamExecutionEnvironment::createLocalEnvironment);
+			.map(factory -> factory.createExecutionEnvironment(configuration))
+			.orElseGet(() -> StreamExecutionEnvironment.createLocalEnvironment(configuration));
 	}
 
 	/**
@@ -2039,12 +2107,30 @@ public class StreamExecutionEnvironment {
 	 * @return A local execution environment with the specified parallelism.
 	 */
 	public static LocalStreamEnvironment createLocalEnvironment(int parallelism, Configuration configuration) {
-		final LocalStreamEnvironment currentEnvironment;
+		Configuration copyOfConfiguration = new Configuration();
+		copyOfConfiguration.addAll(configuration);
+		copyOfConfiguration.set(CoreOptions.DEFAULT_PARALLELISM, parallelism);
+		return createLocalEnvironment(copyOfConfiguration);
+	}
 
-		currentEnvironment = new LocalStreamEnvironment(configuration);
-		currentEnvironment.setParallelism(parallelism);
-
-		return currentEnvironment;
+	/**
+	 * Creates a {@link LocalStreamEnvironment}. The local execution environment
+	 * will run the program in a multi-threaded fashion in the same JVM as the
+	 * environment was created in.
+	 *
+	 * 	@param configuration
+	 * 		Pass a custom configuration into the cluster
+	 * @return A local execution environment with the specified parallelism.
+	 */
+	public static LocalStreamEnvironment createLocalEnvironment(Configuration configuration) {
+		if (configuration.getOptional(CoreOptions.DEFAULT_PARALLELISM).isPresent()) {
+			return new LocalStreamEnvironment(configuration);
+		} else {
+			Configuration copyOfConfiguration = new Configuration();
+			copyOfConfiguration.addAll(configuration);
+			copyOfConfiguration.set(CoreOptions.DEFAULT_PARALLELISM, defaultLocalParallelism);
+			return new LocalStreamEnvironment(copyOfConfiguration);
+		}
 	}
 
 	/**
@@ -2067,7 +2153,7 @@ public class StreamExecutionEnvironment {
 			conf.setInteger(RestOptions.PORT, RestOptions.PORT.defaultValue());
 		}
 
-		return createLocalEnvironment(defaultLocalParallelism, conf);
+		return createLocalEnvironment(conf);
 	}
 
 	/**

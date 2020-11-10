@@ -22,7 +22,6 @@ import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.RuntimeExecutionMode;
 import org.apache.flink.api.common.cache.DistributedCache;
-import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.connector.source.Boundedness;
 import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -35,7 +34,6 @@ import org.apache.flink.runtime.state.KeyGroupRangeAssignment;
 import org.apache.flink.runtime.state.StateBackend;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.environment.CheckpointConfig;
-import org.apache.flink.streaming.api.operators.InputFormatOperatorFactory;
 import org.apache.flink.streaming.api.operators.sorted.state.BatchExecutionInternalTimeServiceManager;
 import org.apache.flink.streaming.api.operators.sorted.state.BatchExecutionStateBackend;
 import org.apache.flink.streaming.api.transformations.CoFeedbackTransformation;
@@ -47,14 +45,26 @@ import org.apache.flink.streaming.api.transformations.MultipleInputTransformatio
 import org.apache.flink.streaming.api.transformations.OneInputTransformation;
 import org.apache.flink.streaming.api.transformations.PartitionTransformation;
 import org.apache.flink.streaming.api.transformations.PhysicalTransformation;
+import org.apache.flink.streaming.api.transformations.ReduceTransformation;
 import org.apache.flink.streaming.api.transformations.SideOutputTransformation;
+import org.apache.flink.streaming.api.transformations.SinkTransformation;
 import org.apache.flink.streaming.api.transformations.SourceTransformation;
+import org.apache.flink.streaming.api.transformations.TimestampsAndWatermarksTransformation;
 import org.apache.flink.streaming.api.transformations.TwoInputTransformation;
 import org.apache.flink.streaming.api.transformations.UnionTransformation;
 import org.apache.flink.streaming.api.transformations.WithBoundedness;
+import org.apache.flink.streaming.runtime.translators.LegacySinkTransformationTranslator;
+import org.apache.flink.streaming.runtime.translators.LegacySourceTransformationTranslator;
 import org.apache.flink.streaming.runtime.translators.MultiInputTransformationTranslator;
 import org.apache.flink.streaming.runtime.translators.OneInputTransformationTranslator;
+import org.apache.flink.streaming.runtime.translators.PartitionTransformationTranslator;
+import org.apache.flink.streaming.runtime.translators.ReduceTransformationTranslator;
+import org.apache.flink.streaming.runtime.translators.SideOutputTransformationTranslator;
+import org.apache.flink.streaming.runtime.translators.SinkTransformationTranslator;
+import org.apache.flink.streaming.runtime.translators.SourceTransformationTranslator;
+import org.apache.flink.streaming.runtime.translators.TimestampsAndWatermarksTransformationTranslator;
 import org.apache.flink.streaming.runtime.translators.TwoInputTransformationTranslator;
+import org.apache.flink.streaming.runtime.translators.UnionTransformationTranslator;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -148,6 +158,15 @@ public class StreamGraphGenerator {
 		tmp.put(TwoInputTransformation.class, new TwoInputTransformationTranslator<>());
 		tmp.put(MultipleInputTransformation.class, new MultiInputTransformationTranslator<>());
 		tmp.put(KeyedMultipleInputTransformation.class, new MultiInputTransformationTranslator<>());
+		tmp.put(SourceTransformation.class, new SourceTransformationTranslator<>());
+		tmp.put(SinkTransformation.class, new SinkTransformationTranslator<>());
+		tmp.put(LegacySinkTransformation.class, new LegacySinkTransformationTranslator<>());
+		tmp.put(LegacySourceTransformation.class, new LegacySourceTransformationTranslator<>());
+		tmp.put(UnionTransformation.class, new UnionTransformationTranslator<>());
+		tmp.put(PartitionTransformation.class, new PartitionTransformationTranslator<>());
+		tmp.put(SideOutputTransformation.class, new SideOutputTransformationTranslator<>());
+		tmp.put(ReduceTransformation.class, new ReduceTransformationTranslator<>());
+		tmp.put(TimestampsAndWatermarksTransformation.class, new TimestampsAndWatermarksTransformationTranslator<>());
 		translatorMap = Collections.unmodifiableMap(tmp);
 	}
 
@@ -184,7 +203,7 @@ public class StreamGraphGenerator {
 			ReadableConfig configuration) {
 		this.transformations = checkNotNull(transformations);
 		this.executionConfig = checkNotNull(executionConfig);
-		this.checkpointConfig = checkNotNull(checkpointConfig);
+		this.checkpointConfig = new CheckpointConfig(checkpointConfig);
 		this.configuration = checkNotNull(configuration);
 	}
 
@@ -256,17 +275,33 @@ public class StreamGraphGenerator {
 		graph.setJobName(jobName);
 
 		if (shouldExecuteInBatchMode) {
-			graph.setAllVerticesInSameSlotSharingGroupByDefault(false);
+
+			if (checkpointConfig.isCheckpointingEnabled()) {
+				LOG.info("Disabled Checkpointing. Checkpointing is not supported and not needed when executing jobs in BATCH mode.");
+				checkpointConfig.disableCheckpointing();
+			}
+
 			graph.setGlobalDataExchangeMode(GlobalDataExchangeMode.POINTWISE_EDGES_PIPELINED);
 			graph.setScheduleMode(ScheduleMode.LAZY_FROM_SOURCES_WITH_BATCH_SLOT_REQUEST);
 			setDefaultBufferTimeout(-1);
 			setBatchStateBackendAndTimerService(graph);
 		} else {
 			graph.setStateBackend(stateBackend);
-			graph.setAllVerticesInSameSlotSharingGroupByDefault(true);
-			graph.setGlobalDataExchangeMode(GlobalDataExchangeMode.ALL_EDGES_PIPELINED);
 			graph.setScheduleMode(ScheduleMode.EAGER);
+
+			if (checkpointConfig.isApproximateLocalRecoveryEnabled()) {
+				checkApproximateLocalRecoveryCompatibility();
+				graph.setGlobalDataExchangeMode(GlobalDataExchangeMode.ALL_EDGES_PIPELINED_APPROXIMATE);
+			} else {
+				graph.setGlobalDataExchangeMode(GlobalDataExchangeMode.ALL_EDGES_PIPELINED);
+			}
 		}
+	}
+
+	private void checkApproximateLocalRecoveryCompatibility() {
+		checkState(
+			!checkpointConfig.isUnalignedCheckpointsEnabled(),
+			"Approximate Local Recovery and Unaligned Checkpoint can not be used together yet");
 	}
 
 	private void setBatchStateBackendAndTimerService(StreamGraph graph) {
@@ -364,22 +399,10 @@ public class StreamGraphGenerator {
 
 	private Collection<Integer> legacyTransform(Transformation<?> transform) {
 		Collection<Integer> transformedIds;
-		if (transform instanceof SourceTransformation) {
-			transformedIds = transformSource((SourceTransformation<?>) transform);
-		} else if (transform instanceof LegacySourceTransformation<?>) {
-			transformedIds = transformLegacySource((LegacySourceTransformation<?>) transform);
-		} else if (transform instanceof LegacySinkTransformation<?>) {
-			transformedIds = transformLegacySink((LegacySinkTransformation<?>) transform);
-		} else if (transform instanceof UnionTransformation<?>) {
-			transformedIds = transformUnion((UnionTransformation<?>) transform);
-		} else if (transform instanceof FeedbackTransformation<?>) {
+		if (transform instanceof FeedbackTransformation<?>) {
 			transformedIds = transformFeedback((FeedbackTransformation<?>) transform);
 		} else if (transform instanceof CoFeedbackTransformation<?>) {
 			transformedIds = transformCoFeedback((CoFeedbackTransformation<?>) transform);
-		} else if (transform instanceof PartitionTransformation<?>) {
-			transformedIds = transformPartition((PartitionTransformation<?>) transform);
-		} else if (transform instanceof SideOutputTransformation<?>) {
-			transformedIds = transformSideOutput((SideOutputTransformation<?>) transform);
 		} else {
 			throw new IllegalStateException("Unknown transformation: " + transform);
 		}
@@ -419,77 +442,6 @@ public class StreamGraphGenerator {
 	}
 
 	/**
-	 * Transforms a {@code UnionTransformation}.
-	 *
-	 * <p>This is easy, we only have to transform the inputs and return all the IDs in a list so
-	 * that downstream operations can connect to all upstream nodes.
-	 */
-	private <T> Collection<Integer> transformUnion(UnionTransformation<T> union) {
-		List<Transformation<?>> inputs = union.getInputs();
-		List<Integer> resultIds = new ArrayList<>();
-
-		for (Transformation<?> input: inputs) {
-			resultIds.addAll(transform(input));
-		}
-
-		return resultIds;
-	}
-
-	/**
-	 * Transforms a {@code PartitionTransformation}.
-	 *
-	 * <p>For this we create a virtual node in the {@code StreamGraph} that holds the partition
-	 * property. @see StreamGraphGenerator
-	 */
-	private <T> Collection<Integer> transformPartition(PartitionTransformation<T> partition) {
-		List<Transformation<?>> inputs = partition.getInputs();
-		checkState(inputs.size() == 1);
-		Transformation<?> input = inputs.get(0);
-
-		List<Integer> resultIds = new ArrayList<>();
-
-		Collection<Integer> transformedIds = transform(input);
-		for (Integer transformedId: transformedIds) {
-			int virtualId = Transformation.getNewNodeId();
-			streamGraph.addVirtualPartitionNode(
-					transformedId, virtualId, partition.getPartitioner(), partition.getShuffleMode());
-			resultIds.add(virtualId);
-		}
-
-		return resultIds;
-	}
-
-	/**
-	 * Transforms a {@code SideOutputTransformation}.
-	 *
-	 * <p>For this we create a virtual node in the {@code StreamGraph} that holds the side-output
-	 * {@link org.apache.flink.util.OutputTag}.
-	 *
-	 * @see org.apache.flink.streaming.api.graph.StreamGraphGenerator
-	 */
-	private <T> Collection<Integer> transformSideOutput(SideOutputTransformation<T> sideOutput) {
-		List<Transformation<?>> inputs = sideOutput.getInputs();
-		checkState(inputs.size() == 1);
-		Transformation<?> input = inputs.get(0);
-
-		Collection<Integer> resultIds = transform(input);
-
-		// the recursive transform might have already transformed this
-		if (alreadyTransformed.containsKey(sideOutput)) {
-			return alreadyTransformed.get(sideOutput);
-		}
-
-		List<Integer> virtualResultIds = new ArrayList<>();
-
-		for (int inputId : resultIds) {
-			int virtualId = Transformation.getNewNodeId();
-			streamGraph.addVirtualSideOutputNode(inputId, virtualId, sideOutput.getOutputTag());
-			virtualResultIds.add(virtualId);
-		}
-		return virtualResultIds;
-	}
-
-	/**
 	 * Transforms a {@code FeedbackTransformation}.
 	 *
 	 * <p>This will recursively transform the input and the feedback edges. We return the
@@ -500,6 +452,12 @@ public class StreamGraphGenerator {
 	 * feed back the elements.
 	 */
 	private <T> Collection<Integer> transformFeedback(FeedbackTransformation<T> iterate) {
+
+		if (shouldExecuteInBatchMode) {
+			throw new UnsupportedOperationException("Iterations are not supported in BATCH" +
+					" execution mode. If you want to execute such a pipeline, please set the " +
+					"'" + ExecutionOptions.RUNTIME_MODE.key() + "'=" + RuntimeExecutionMode.STREAMING.name());
+		}
 
 		if (iterate.getFeedbackEdges().size() <= 0) {
 			throw new IllegalStateException("Iteration " + iterate + " does not have any feedback edges.");
@@ -584,6 +542,12 @@ public class StreamGraphGenerator {
 	 */
 	private <F> Collection<Integer> transformCoFeedback(CoFeedbackTransformation<F> coIterate) {
 
+		if (shouldExecuteInBatchMode) {
+			throw new UnsupportedOperationException("Iterations are not supported in BATCH" +
+					" execution mode. If you want to execute such a pipeline, please set the " +
+					"'" + ExecutionOptions.RUNTIME_MODE.key() + "'=" + RuntimeExecutionMode.STREAMING.name());
+		}
+
 		// For Co-Iteration we don't need to transform the input and wire the input to the
 		// head operator by returning the input IDs, the input is directly wired to the left
 		// input of the co-operation. This transform only needs to return the ids of the feedback
@@ -633,90 +597,6 @@ public class StreamGraphGenerator {
 		itSource.setSlotSharingGroup(slotSharingGroup);
 
 		return Collections.singleton(itSource.getId());
-	}
-
-	/**
-	 * Transforms a {@code SourceTransformation}.
-	 */
-	private <T> Collection<Integer> transformSource(SourceTransformation<T> source) {
-		String slotSharingGroup = determineSlotSharingGroup(source.getSlotSharingGroup(), Collections.emptyList());
-
-		streamGraph.addSource(source.getId(),
-				slotSharingGroup,
-				source.getCoLocationGroupKey(),
-				source.getOperatorFactory(),
-				null,
-				source.getOutputType(),
-				"Source: " + source.getName());
-		int parallelism = source.getParallelism() != ExecutionConfig.PARALLELISM_DEFAULT ?
-				source.getParallelism() : executionConfig.getParallelism();
-		streamGraph.setParallelism(source.getId(), parallelism);
-		streamGraph.setMaxParallelism(source.getId(), source.getMaxParallelism());
-		return Collections.singleton(source.getId());
-	}
-
-	/**
-	 * Transforms a {@code LegacySourceTransformation}.
-	 */
-	private <T> Collection<Integer> transformLegacySource(LegacySourceTransformation<T> source) {
-		String slotSharingGroup = determineSlotSharingGroup(source.getSlotSharingGroup(), Collections.emptyList());
-
-		streamGraph.addLegacySource(source.getId(),
-				slotSharingGroup,
-				source.getCoLocationGroupKey(),
-				source.getOperatorFactory(),
-				null,
-				source.getOutputType(),
-				"Source: " + source.getName());
-		if (source.getOperatorFactory() instanceof InputFormatOperatorFactory) {
-			streamGraph.setInputFormat(source.getId(),
-					((InputFormatOperatorFactory<T>) source.getOperatorFactory()).getInputFormat());
-		}
-		int parallelism = source.getParallelism() != ExecutionConfig.PARALLELISM_DEFAULT ?
-			source.getParallelism() : executionConfig.getParallelism();
-		streamGraph.setParallelism(source.getId(), parallelism);
-		streamGraph.setMaxParallelism(source.getId(), source.getMaxParallelism());
-		return Collections.singleton(source.getId());
-	}
-
-	/**
-	 * Transforms a {@code LegacySinkTransformation}.
-	 */
-	private <T> Collection<Integer> transformLegacySink(LegacySinkTransformation<T> sink) {
-		List<Transformation<?>> inputs = sink.getInputs();
-		checkState(inputs.size() == 1);
-		Transformation<?> input = inputs.get(0);
-
-		Collection<Integer> inputIds = transform(input);
-
-		String slotSharingGroup = determineSlotSharingGroup(sink.getSlotSharingGroup(), inputIds);
-
-		streamGraph.addSink(sink.getId(),
-				slotSharingGroup,
-				sink.getCoLocationGroupKey(),
-				sink.getOperatorFactory(),
-				input.getOutputType(),
-				null,
-				"Sink: " + sink.getName());
-
-		int parallelism = sink.getParallelism() != ExecutionConfig.PARALLELISM_DEFAULT ?
-			sink.getParallelism() : executionConfig.getParallelism();
-		streamGraph.setParallelism(sink.getId(), parallelism);
-		streamGraph.setMaxParallelism(sink.getId(), sink.getMaxParallelism());
-
-		for (Integer inputId: inputIds) {
-			streamGraph.addEdge(inputId,
-					sink.getId(),
-					0
-			);
-		}
-
-		if (sink.getStateKeySelector() != null) {
-			TypeSerializer<?> keySerializer = sink.getStateKeyType().createSerializer(executionConfig);
-			streamGraph.setOneInputStateKey(sink.getId(), sink.getStateKeySelector(), keySerializer);
-		}
-
-		return Collections.emptyList();
 	}
 
 	private Collection<Integer> translate(

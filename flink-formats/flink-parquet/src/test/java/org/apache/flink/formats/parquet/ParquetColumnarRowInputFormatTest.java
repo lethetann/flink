@@ -18,12 +18,13 @@
 
 package org.apache.flink.formats.parquet;
 
+import org.apache.flink.connector.file.src.FileSourceSplit;
 import org.apache.flink.connector.file.src.reader.BulkFormat;
 import org.apache.flink.connector.file.src.util.CheckpointedPosition;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.table.data.DecimalData;
 import org.apache.flink.table.data.RowData;
-import org.apache.flink.table.filesystem.PartitionValueConverter;
+import org.apache.flink.table.filesystem.PartitionFieldExtractor;
 import org.apache.flink.table.runtime.functions.SqlDateTimeUtils;
 import org.apache.flink.table.types.logical.BigIntType;
 import org.apache.flink.table.types.logical.BooleanType;
@@ -217,16 +218,15 @@ public class ParquetColumnarRowInputFormatTest {
 				new DoubleType(),
 				new TinyIntType(),
 				new IntType()};
-		ParquetColumnarRowInputFormat format = new ParquetColumnarRowInputFormat(
+		ParquetColumnarRowInputFormat<FileSourceSplit> format = new ParquetColumnarRowInputFormat(
 				new Configuration(),
-				new String[] {"f7", "f2", "f4"},
-				fieldTypes,
+				RowType.of(fieldTypes, new String[] {"f7", "f2", "f4"}),
 				500,
 				false,
 				true);
 
 		AtomicInteger cnt = new AtomicInteger(0);
-		forEachRemaining(format.createReader(EMPTY_CONF, testPath, 0, Long.MAX_VALUE), row -> {
+		forEachRemaining(format.createReader(EMPTY_CONF, new FileSourceSplit("id", testPath, 0, Long.MAX_VALUE)), row -> {
 			int i = cnt.get();
 			assertEquals(i, row.getDouble(0), 0);
 			assertEquals((byte) i, row.getByte(1));
@@ -337,10 +337,9 @@ public class ParquetColumnarRowInputFormatTest {
 
 		ParquetColumnarRowInputFormat format = new ParquetColumnarRowInputFormat(
 				new Configuration(),
-				new String[] {
+				RowType.of(fieldTypes, new String[] {
 						"f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7",
-						"f8", "f9", "f10", "f11", "f12", "f13", "f14"},
-				fieldTypes,
+						"f8", "f9", "f10", "f11", "f12", "f13", "f14"}),
 				500,
 				false,
 				true);
@@ -354,10 +353,13 @@ public class ParquetColumnarRowInputFormatTest {
 
 		BulkFormat.Reader<RowData> reader = format.restoreReader(
 				EMPTY_CONF,
-				path,
-				splitStart,
-				splitLength,
-				new CheckpointedPosition(CheckpointedPosition.NO_OFFSET, seekToRow));
+				new FileSourceSplit(
+						"id",
+						path,
+						splitStart,
+						splitLength,
+						new String[0],
+						new CheckpointedPosition(CheckpointedPosition.NO_OFFSET, seekToRow)));
 
 		AtomicInteger cnt = new AtomicInteger(0);
 		forEachRemaining(reader, row -> {
@@ -465,21 +467,26 @@ public class ParquetColumnarRowInputFormatTest {
 				new DecimalType(20, 0),
 				new VarCharType(VarCharType.MAX_LENGTH)};
 
-		ParquetColumnarRowInputFormat format = ParquetColumnarRowInputFormat.createPartitionedFormat(
+		RowType rowType = RowType.of(
+				fieldTypes,
+				IntStream.range(0, 28).mapToObj(i -> "f" + i).toArray(String[]::new));
+
+		int[] projected = new int[]{7, 2, 4, 15, 19, 20, 21, 22, 23, 18, 16, 17, 24, 25, 26, 27};
+
+		RowType producedType = new RowType(Arrays.stream(projected)
+				.mapToObj(i -> rowType.getFields().get(i)).collect(Collectors.toList()));
+
+		ParquetColumnarRowInputFormat<FileSourceSplit> format = ParquetColumnarRowInputFormat.createPartitionedFormat(
 				new Configuration(),
-				RowType.of(
-						fieldTypes,
-						IntStream.range(0, 28).mapToObj(i -> "f" + i).toArray(String[]::new)),
+				producedType,
 				partitionKeys,
-				"my_default_value",
-				new int[]{7, 2, 4, 15, 19, 20, 21, 22, 23, 18, 16, 17, 24, 25, 26, 27},
-				PartitionValueConverter.DEFAULT,
+				PartitionFieldExtractor.forFileSystem("my_default_value"),
 				500,
 				false,
 				true);
 
 		AtomicInteger cnt = new AtomicInteger(0);
-		forEachRemaining(format.createReader(EMPTY_CONF, testPath, 0, Long.MAX_VALUE), row -> {
+		forEachRemaining(format.createReader(EMPTY_CONF, new FileSourceSplit("id", testPath, 0, Long.MAX_VALUE)), row -> {
 			int i = cnt.get();
 			// common values
 			assertEquals(i, row.getDouble(0), 0);
