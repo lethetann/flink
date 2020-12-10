@@ -30,7 +30,7 @@ import org.apache.flink.table.planner.calcite.FlinkTypeFactory
 import org.apache.flink.table.planner.codegen.{CodeGeneratorContext, HashCodeGenerator}
 import org.apache.flink.table.planner.delegation.BatchPlanner
 import org.apache.flink.table.planner.plan.nodes.common.CommonPhysicalExchange
-import org.apache.flink.table.planner.plan.nodes.exec.{BatchExecNode, ExecEdge, ExecNode}
+import org.apache.flink.table.planner.plan.nodes.exec.{LegacyBatchExecNode, ExecEdge}
 import org.apache.flink.table.planner.plan.utils.FlinkRelOptUtil
 import org.apache.flink.table.runtime.partitioner.BinaryHashPartitioner
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo
@@ -56,7 +56,7 @@ class BatchExecExchange(
     relDistribution: RelDistribution)
   extends CommonPhysicalExchange(cluster, traitSet, inputRel, relDistribution)
   with BatchPhysicalRel
-  with BatchExecNode[RowData] {
+  with LegacyBatchExecNode[RowData] {
 
   // TODO reuse PartitionTransformation
   // currently, an Exchange' input transformation will be reused if it is reusable,
@@ -100,9 +100,6 @@ class BatchExecExchange(
     }
   }
 
-  override def getInputNodes: util.List[ExecNode[BatchPlanner, _]] =
-    getInputs.map(_.asInstanceOf[ExecNode[BatchPlanner, _]])
-
   override def getInputEdges: util.List[ExecEdge] = {
     val tableConfig = FlinkRelOptUtil.getTableConfigFromContext(this)
     val shuffleMode = getShuffleMode(tableConfig.getConfiguration)
@@ -125,12 +122,6 @@ class BatchExecExchange(
               .build())
       }
     }
-  }
-
-  override def replaceInputNode(
-      ordinalInParent: Int,
-      newInputNode: ExecNode[BatchPlanner, _]): Unit = {
-    replaceInput(ordinalInParent, newInputNode.asInstanceOf[RelNode])
   }
 
   override protected def translateToPlanInternal(

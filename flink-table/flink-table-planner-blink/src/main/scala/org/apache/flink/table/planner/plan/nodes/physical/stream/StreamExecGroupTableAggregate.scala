@@ -25,7 +25,7 @@ import org.apache.flink.table.planner.calcite.FlinkTypeFactory
 import org.apache.flink.table.planner.codegen.CodeGeneratorContext
 import org.apache.flink.table.planner.codegen.agg.AggsHandlerCodeGenerator
 import org.apache.flink.table.planner.delegation.StreamPlanner
-import org.apache.flink.table.planner.plan.nodes.exec.{ExecNode, StreamExecNode}
+import org.apache.flink.table.planner.plan.nodes.exec.LegacyStreamExecNode
 import org.apache.flink.table.planner.plan.utils._
 import org.apache.flink.table.runtime.operators.aggregate.GroupTableAggFunction
 import org.apache.flink.table.runtime.types.LogicalTypeDataTypeConverter.fromDataTypeToLogicalType
@@ -51,8 +51,8 @@ class StreamExecGroupTableAggregate(
     val grouping: Array[Int],
     val aggCalls: Seq[AggregateCall])
   extends SingleRel(cluster, traitSet, inputRel)
-    with StreamPhysicalRel
-    with StreamExecNode[RowData] {
+  with StreamPhysicalRel
+  with LegacyStreamExecNode[RowData] {
 
   val aggInfoList: AggregateInfoList = AggregateUtil.deriveAggregateInfoList(
     this,
@@ -86,16 +86,6 @@ class StreamExecGroupTableAggregate(
   }
 
   //~ ExecNode methods -----------------------------------------------------------
-
-  override def getInputNodes: util.List[ExecNode[StreamPlanner, _]] = {
-    getInputs.map(_.asInstanceOf[ExecNode[StreamPlanner, _]])
-  }
-
-  override def replaceInputNode(
-      ordinalInParent: Int,
-      newInputNode: ExecNode[StreamPlanner, _]): Unit = {
-    replaceInput(ordinalInParent, newInputNode.asInstanceOf[RelNode])
-  }
 
   override protected def translateToPlanInternal(
       planner: StreamPlanner): Transformation[RowData] = {
@@ -138,12 +128,11 @@ class StreamExecGroupTableAggregate(
     val inputCountIndex = aggInfoList.getIndexOfCountStar
 
     val aggFunction = new GroupTableAggFunction(
-      tableConfig.getMinIdleStateRetentionTime,
-      tableConfig.getMaxIdleStateRetentionTime,
       aggsHandler,
       accTypes,
       inputCountIndex,
-      generateUpdateBefore)
+      generateUpdateBefore,
+      tableConfig.getIdleStateRetention.toMillis)
     val operator = new KeyedProcessOperator[RowData, RowData, RowData](aggFunction)
 
     val selector = KeySelectorUtil.getRowDataSelector(

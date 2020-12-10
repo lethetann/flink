@@ -21,15 +21,11 @@ package org.apache.flink.table.planner.plan.nodes.physical.stream
 import org.apache.flink.api.dag.Transformation
 import org.apache.flink.table.data.RowData
 import org.apache.flink.table.planner.delegation.StreamPlanner
-import org.apache.flink.table.planner.plan.nodes.exec.{ExecNode, StreamExecNode}
+import org.apache.flink.table.planner.plan.nodes.exec.{ExecNode, LegacyStreamExecNode}
 import org.apache.flink.table.planner.plan.nodes.physical.MultipleInputRel
 
 import org.apache.calcite.plan.{RelOptCluster, RelTraitSet}
 import org.apache.calcite.rel.RelNode
-
-import java.util
-
-import scala.collection.JavaConversions._
 
 /**
  * Stream physical node for [[MultipleInputRel]].
@@ -44,7 +40,7 @@ class StreamExecMultipleInput(
     inputRels: Array[RelNode],
     outputRel: RelNode)
   extends MultipleInputRel(cluster, traitSet, inputRels, outputRel, inputRels.map(_ => 0))
-  with StreamExecNode[RowData]
+  with LegacyStreamExecNode[RowData]
   with StreamPhysicalRel {
 
   override def requireWatermark: Boolean = {
@@ -53,13 +49,9 @@ class StreamExecMultipleInput(
 
   //~ ExecNode methods -----------------------------------------------------------
 
-  override def getInputNodes: util.List[ExecNode[StreamPlanner, _]] = {
-    getInputs.map(_.asInstanceOf[ExecNode[StreamPlanner, _]])
-  }
-
   override def replaceInputNode(
       ordinalInParent: Int,
-      newInputNode: ExecNode[StreamPlanner, _]): Unit = {
+      newInputNode: ExecNode[_]): Unit = {
     throw new UnsupportedOperationException()
   }
 

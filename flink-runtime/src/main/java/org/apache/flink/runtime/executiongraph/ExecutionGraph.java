@@ -855,7 +855,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 		}
 
 		// the topology assigning should happen before notifying new vertices to failoverStrategy
-		executionTopology = new DefaultExecutionTopology(this);
+		executionTopology = DefaultExecutionTopology.fromExecutionGraph(this);
 
 		failoverStrategy.notifyNewVertices(newExecJobVertices);
 
@@ -1424,7 +1424,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 	}
 
 	public void failJob(Throwable cause) {
-		if (state == JobStatus.FAILING || state.isGloballyTerminalState()) {
+		if (state == JobStatus.FAILING || state.isTerminalState()) {
 			return;
 		}
 
@@ -1433,8 +1433,9 @@ public class ExecutionGraph implements AccessExecutionGraph {
 
 		FutureUtils.assertNoException(
 			cancelVerticesAsync().whenComplete((aVoid, throwable) -> {
-				transitionState(JobStatus.FAILED, cause);
-				onTerminalState(JobStatus.FAILED);
+				if (transitionState(JobStatus.FAILING, JobStatus.FAILED, cause)) {
+					onTerminalState(JobStatus.FAILED);
+				}
 			}));
 	}
 

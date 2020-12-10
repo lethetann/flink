@@ -24,7 +24,8 @@ import org.apache.flink.streaming.api.transformations.MultipleInputTransformatio
 import org.apache.flink.table.data.RowData
 import org.apache.flink.table.planner.calcite.FlinkTypeFactory
 import org.apache.flink.table.planner.delegation.BatchPlanner
-import org.apache.flink.table.planner.plan.nodes.exec.{BatchExecNode, ExecEdge, ExecNode}
+import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil
+import org.apache.flink.table.planner.plan.nodes.exec.{LegacyBatchExecNode, ExecEdge, ExecNode}
 import org.apache.flink.table.planner.plan.nodes.physical.MultipleInputRel
 import org.apache.flink.table.runtime.operators.multipleinput.{BatchMultipleInputStreamOperatorFactory, TableOperatorWrapperGenerator}
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo
@@ -51,27 +52,23 @@ class BatchExecMultipleInput(
     outputRel: RelNode,
     inputEdges: Array[ExecEdge])
   extends MultipleInputRel(cluster, traitSet, inputRels, outputRel, inputEdges.map(_.getPriority))
-  with BatchExecNode[RowData]
+  with LegacyBatchExecNode[RowData]
   with BatchPhysicalRel {
 
   //~ ExecNode methods -----------------------------------------------------------
-
-  override def getInputNodes: util.List[ExecNode[BatchPlanner, _]] = {
-    getInputs.map(_.asInstanceOf[ExecNode[BatchPlanner, _]])
-  }
 
   override def getInputEdges: util.List[ExecEdge] = inputEdges.toList
 
   override def replaceInputNode(
       ordinalInParent: Int,
-      newInputNode: ExecNode[BatchPlanner, _]): Unit = {
+      newInputNode: ExecNode[_]): Unit = {
     throw new UnsupportedOperationException()
   }
 
   override protected def translateToPlanInternal(
       planner: BatchPlanner): Transformation[RowData] = {
     val inputTransforms = getInputNodes.map(n => n.translateToPlan(planner))
-    val tailTransform = outputRel.asInstanceOf[BatchExecNode[_]].translateToPlan(planner)
+    val tailTransform = outputRel.asInstanceOf[LegacyBatchExecNode[_]].translateToPlan(planner)
 
     val outputType = InternalTypeInfo.of(FlinkTypeFactory.toLogicalRowType(getRowType))
 
@@ -98,7 +95,7 @@ class BatchExecMultipleInput(
     // set resources
     multipleInputTransform.setResources(generator.getMinResources, generator.getPreferredResources)
     val memoryKB = generator.getManagedMemoryWeight
-    ExecNode.setManagedMemoryWeight(multipleInputTransform, memoryKB * 1024L)
+    ExecNodeUtil.setManagedMemoryWeight(multipleInputTransform, memoryKB * 1024L)
 
     // set chaining strategy for source chaining
     multipleInputTransform.setChainingStrategy(ChainingStrategy.HEAD_WITH_SOURCES)

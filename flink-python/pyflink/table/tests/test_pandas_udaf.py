@@ -27,6 +27,22 @@ from pyflink.testing.test_case_utils import PyFlinkBlinkBatchTableTestCase, \
 
 
 class BatchPandasUDAFITTests(PyFlinkBlinkBatchTableTestCase):
+
+    def test_check_result_type(self):
+        def pandas_udaf():
+            pass
+
+        with self.assertRaises(
+                TypeError,
+                msg="Invalid returnType: Pandas UDAF doesn't support DataType type ROW currently"):
+            udaf(pandas_udaf, result_type=DataTypes.ROW(), func_type="pandas")
+
+        with self.assertRaises(
+                TypeError,
+                msg="Invalid returnType: Pandas UDAF doesn't support DataType type MAP currently"):
+            udaf(pandas_udaf, result_type=DataTypes.MAP(DataTypes.INT(), DataTypes.INT()),
+                 func_type="pandas")
+
     def test_group_aggregate_function(self):
         t = self.t_env.from_elements(
             [(1, 2, 3), (3, 2, 3), (2, 1, 3), (1, 5, 4), (1, 8, 6), (2, 3, 4)],
@@ -426,24 +442,26 @@ class StreamPandasUDAFITTests(PyFlinkBlinkStreamTableTestCase):
         t = self.t_env.from_path("source_table")
 
         table_sink = source_sink_utils.TestAppendSink(
-            ['a', 'b', 'c', 'd'],
+            ['a', 'b', 'c', 'd', 'e'],
             [
                 DataTypes.TINYINT(),
+                DataTypes.TIMESTAMP(3),
                 DataTypes.TIMESTAMP(3),
                 DataTypes.TIMESTAMP(3),
                 DataTypes.FLOAT()])
         self.t_env.register_table_sink("Results", table_sink)
         t.window(Tumble.over("1.hours").on("rowtime").alias("w")) \
             .group_by("a, b, w") \
-            .select("a, w.start, w.end, mean_udaf(c) as b") \
+            .select("a, w.start, w.end, w.rowtime, mean_udaf(c) as b") \
             .execute_insert("Results") \
             .wait()
         actual = source_sink_utils.results()
-        self.assert_equals(actual,
-                           ["1,2018-03-11 03:00:00.0,2018-03-11 04:00:00.0,2.5",
-                            "1,2018-03-11 04:00:00.0,2018-03-11 05:00:00.0,8.0",
-                            "2,2018-03-11 03:00:00.0,2018-03-11 04:00:00.0,2.0",
-                            "3,2018-03-11 03:00:00.0,2018-03-11 04:00:00.0,2.0"])
+        self.assert_equals(actual, [
+            "1,2018-03-11 03:00:00.0,2018-03-11 04:00:00.0,2018-03-11 03:59:59.999,2.5",
+            "1,2018-03-11 04:00:00.0,2018-03-11 05:00:00.0,2018-03-11 04:59:59.999,8.0",
+            "2,2018-03-11 03:00:00.0,2018-03-11 04:00:00.0,2018-03-11 03:59:59.999,2.0",
+            "3,2018-03-11 03:00:00.0,2018-03-11 04:00:00.0,2018-03-11 03:59:59.999,2.0",
+        ])
         os.remove(source_path)
 
     def test_tumbling_group_window_over_count(self):
@@ -706,7 +724,6 @@ class MaxAdd(AggregateFunction, unittest.TestCase):
         # counter
         self.counter.inc(10)
         self.counter_sum += 10
-        self.assertEqual(self.counter_sum, self.counter.get_count())
         return accumulator[0]
 
     def create_accumulator(self):

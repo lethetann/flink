@@ -20,6 +20,7 @@ package org.apache.flink.table.planner.plan.stream.sql
 
 import org.apache.flink.api.scala._
 import org.apache.flink.table.api._
+import org.apache.flink.table.api.config.ExecutionConfigOptions
 import org.apache.flink.table.planner.expressions.utils.Func0
 import org.apache.flink.table.planner.factories.TestValuesTableFactory.MockedLookupTableSource
 import org.apache.flink.table.planner.utils.TableTestBase
@@ -86,7 +87,8 @@ class TableScanTest extends TableTestBase {
          |  `other_metadata` INT METADATA FROM 'metadata_3' VIRTUAL,
          |  `b` BIGINT,
          |  `c` INT,
-         |  `metadata_1` STRING METADATA
+         |  `metadata_1` STRING METADATA,
+         |  `computed` AS UPPER(`metadata_1`)
          |) WITH (
          |  'connector' = 'values',
          |  'bounded' = 'false',
@@ -281,32 +283,56 @@ class TableScanTest extends TableTestBase {
 
   @Test
   def testJoinOnChangelogSource(): Unit = {
+    verifyJoinOnSource("I,UB,UA")
+  }
+
+  @Test
+  def testJoinOnChangelogSourceWithEventsDuplicate(): Unit = {
+    util.tableEnv.getConfig.getConfiguration.setBoolean(
+      ExecutionConfigOptions.TABLE_EXEC_SOURCE_CDC_EVENTS_DUPLICATE, true)
+    verifyJoinOnSource("I,UB,UA")
+  }
+
+  @Test
+  def testJoinOnNoUpdateSource(): Unit = {
+    verifyJoinOnSource("I,D")
+  }
+
+  @Test
+  def testJoinOnUpsertSource(): Unit = {
+    verifyJoinOnSource("UA,D")
+  }
+
+  private def verifyJoinOnSource(changelogMode: String): Unit = {
     util.addTable(
       """
-         |CREATE TABLE orders (
-         |  amount BIGINT,
-         |  currency STRING
-         |) WITH (
-         | 'connector' = 'values',
-         | 'changelog-mode' = 'I'
-         |)
-         |""".stripMargin)
+        |CREATE TABLE orders (
+        |  amount BIGINT,
+        |  currency_id BIGINT,
+        |  currency_name STRING
+        |) WITH (
+        | 'connector' = 'values',
+        | 'changelog-mode' = 'I'
+        |)
+        |""".stripMargin)
     util.addTable(
-      """
-         |CREATE TABLE rates_history (
-         |  currency STRING,
-         |  rate BIGINT
-         |) WITH (
-         |  'connector' = 'values',
-         |  'changelog-mode' = 'I,UB,UA'
-         |)
+      s"""
+        |CREATE TABLE rates_history (
+        |  currency_id BIGINT,
+        |  currency_name STRING,
+        |  rate BIGINT,
+        |  PRIMARY KEY (currency_id) NOT ENFORCED
+        |) WITH (
+        |  'connector' = 'values',
+        |  'changelog-mode' = '$changelogMode'
+        |)
       """.stripMargin)
 
     val sql =
       """
-        |SELECT o.currency, o.amount, r.rate, o.amount * r.rate
+        |SELECT o.currency_name, o.amount, r.rate, o.amount * r.rate
         |FROM orders AS o JOIN rates_history AS r
-        |ON o.currency = r.currency
+        |ON o.currency_id = r.currency_id AND o.currency_name = r.currency_name
         |""".stripMargin
     util.verifyPlan(sql, ExplainDetail.CHANGELOG_MODE)
   }
@@ -326,6 +352,29 @@ class TableScanTest extends TableTestBase {
         |)
       """.stripMargin)
     util.verifyPlan("SELECT * FROM src WHERE a > 1", ExplainDetail.CHANGELOG_MODE)
+  }
+
+  @Test
+  def testChangelogSourceWithEventsDuplicate(): Unit = {
+    util.tableEnv.getConfig.getConfiguration.setBoolean(
+      ExecutionConfigOptions.TABLE_EXEC_SOURCE_CDC_EVENTS_DUPLICATE, true)
+    util.addTable(
+      """
+        |CREATE TABLE src (
+        |  id STRING,
+        |  a INT,
+        |  b AS a + 1,
+        |  c STRING,
+        |  ts as to_timestamp(c),
+        |  PRIMARY KEY (id) NOT ENFORCED,
+        |  WATERMARK FOR ts AS ts - INTERVAL '1' SECOND
+        |) WITH (
+        |  'connector' = 'values',
+        |  'changelog-mode' = 'I,UB,UA,D'
+        |)
+      """.stripMargin)
+    // the last node should keep UB because there is a filter on the changelog stream
+    util.verifyPlan("SELECT a, b, c FROM src WHERE a > 1", ExplainDetail.CHANGELOG_MODE)
   }
 
   @Test
@@ -367,6 +416,28 @@ class TableScanTest extends TableTestBase {
       """.stripMargin)
     // the last node should keep UB because there is a filter on the changelog stream
     util.verifyPlan("SELECT a, b, c FROM src WHERE a > 1", ExplainDetail.CHANGELOG_MODE)
+  }
+
+  @Test
+  def testUpsertSourceWithWatermarkPushDown(): Unit = {
+    util.addTable(
+      """
+        |CREATE TABLE src (
+        |  id STRING,
+        |  a INT,
+        |  b AS a + 1,
+        |  c STRING,
+        |  ts as to_timestamp(c),
+        |  PRIMARY KEY (id) NOT ENFORCED,
+        |  WATERMARK FOR ts AS ts - INTERVAL '1' SECOND
+        |) WITH (
+        |  'connector' = 'values',
+        |  'changelog-mode' = 'UA,D',
+        |  'enable-watermark-push-down' = 'true',
+        |  'disable-lookup' = 'true'
+        |)
+      """.stripMargin)
+    util.verifyPlan("SELECT id, ts FROM src", ExplainDetail.CHANGELOG_MODE)
   }
 
   @Test
@@ -447,38 +518,6 @@ class TableScanTest extends TableTestBase {
     util.verifyPlan(
       "SELECT a, COUNT(*), MAX(ts), MIN(ts) FROM src GROUP BY a",
       ExplainDetail.CHANGELOG_MODE)
-  }
-
-  @Test
-  def testJoinOnUpsertSource(): Unit = {
-    util.addTable(
-      """
-        |CREATE TABLE orders (
-        |  amount BIGINT,
-        |  currency STRING
-        |) WITH (
-        | 'connector' = 'values',
-        | 'changelog-mode' = 'I'
-        |)
-        |""".stripMargin)
-    util.addTable(
-      """
-        |CREATE TABLE rates_history (
-        |  currency STRING PRIMARY KEY NOT ENFORCED,
-        |  rate BIGINT
-        |) WITH (
-        |  'connector' = 'values',
-        |  'changelog-mode' = 'UA,D'
-        |)
-      """.stripMargin)
-
-    val sql =
-      """
-        |SELECT o.currency, o.amount, r.rate, o.amount * r.rate
-        |FROM orders AS o JOIN rates_history AS r
-        |ON o.currency = r.currency
-        |""".stripMargin
-    util.verifyPlan(sql, ExplainDetail.CHANGELOG_MODE)
   }
 
   @Test
@@ -617,6 +656,29 @@ class TableScanTest extends TableTestBase {
     thrown.expectMessage("Table 'default_catalog.default_database.src' produces a " +
       "changelog stream contains UPDATE_AFTER, no UPDATE_BEFORE. " +
       "This requires to define primary key constraint on the table.")
+    util.verifyPlan("SELECT * FROM src WHERE a > 1", ExplainDetail.CHANGELOG_MODE)
+  }
+
+  @Test
+  def testMissingPrimaryKeyForEventsDuplicate(): Unit = {
+    util.addTable(
+      """
+        |CREATE TABLE src (
+        |  ts TIMESTAMP(3),
+        |  a INT,
+        |  b DOUBLE
+        |) WITH (
+        |  'connector' = 'values',
+        |  'changelog-mode' = 'I,UB,UA,D'
+        |)
+      """.stripMargin)
+    util.tableEnv.getConfig.getConfiguration.setBoolean(
+      ExecutionConfigOptions.TABLE_EXEC_SOURCE_CDC_EVENTS_DUPLICATE, true)
+
+    thrown.expect(classOf[TableException])
+    thrown.expectMessage("Configuration 'table.exec.source.cdc-events-duplicate' is enabled " +
+      "which requires the changelog sources to define a PRIMARY KEY. " +
+      "However, table 'default_catalog.default_database.src' doesn't have a primary key.")
     util.verifyPlan("SELECT * FROM src WHERE a > 1", ExplainDetail.CHANGELOG_MODE)
   }
 

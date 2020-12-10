@@ -32,32 +32,32 @@ import org.apache.calcite.rel.AbstractRelNode
 import java.util
 
 /**
- * [[BatchExecNode]] for testing purpose.
+ * [[LegacyBatchExecNode]] for testing purpose.
  */
 class TestingBatchExecNode
     extends AbstractRelNode(TestingBatchExecNode.cluster, TestingBatchExecNode.traitSet)
     with BatchPhysicalRel
-    with BatchExecNode[BatchPlanner]  {
+    with LegacyBatchExecNode[BatchPlanner]  {
 
-  val inputNodes: util.List[ExecNode[BatchPlanner, _]] =
-    new util.ArrayList[ExecNode[BatchPlanner, _]]()
+  val inputNodes: util.List[ExecNode[_]] =
+    new util.ArrayList[ExecNode[_]]()
   val inputEdges: util.List[ExecEdge] = new util.ArrayList[ExecEdge]()
 
-  def addInput(node: ExecNode[BatchPlanner, _]): Unit =
+  def addInput(node: ExecNode[_]): Unit =
     addInput(node, ExecEdge.builder().build())
 
-  def addInput(node: ExecNode[BatchPlanner, _], edge: ExecEdge): Unit = {
+  def addInput(node: ExecNode[_], edge: ExecEdge): Unit = {
     inputNodes.add(node)
     inputEdges.add(edge)
   }
 
-  override def getInputNodes: util.List[ExecNode[BatchPlanner, _]] = inputNodes
+  override def getInputNodes: util.List[ExecNode[_]] = inputNodes
 
   override def getInputEdges: util.List[ExecEdge] = inputEdges
 
   override def replaceInputNode(
       ordinalInParent: Int,
-      newInputNode: ExecNode[BatchPlanner, _]): Unit =
+      newInputNode: ExecNode[_]): Unit =
     inputNodes.set(ordinalInParent, newInputNode)
 
   override def getTraitSet: RelTraitSet = TestingBatchExecNode.traitSet
