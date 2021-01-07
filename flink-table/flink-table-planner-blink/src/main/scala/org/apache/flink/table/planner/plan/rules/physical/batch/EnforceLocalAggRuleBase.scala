@@ -19,9 +19,10 @@
 package org.apache.flink.table.planner.plan.rules.physical.batch
 
 import org.apache.flink.table.api.TableException
+import org.apache.flink.table.planner.calcite.FlinkTypeFactory
 import org.apache.flink.table.planner.plan.`trait`.FlinkRelDistribution
 import org.apache.flink.table.planner.plan.nodes.FlinkConventions
-import org.apache.flink.table.planner.plan.nodes.physical.batch.{BatchExecExchange, BatchExecExpand, BatchExecGroupAggregateBase, BatchExecHashAggregate, BatchExecSortAggregate}
+import org.apache.flink.table.planner.plan.nodes.physical.batch.{BatchExecGroupAggregateBase, BatchExecHashAggregate, BatchExecSortAggregate, BatchPhysicalExchange, BatchPhysicalExpand}
 import org.apache.flink.table.planner.plan.utils.{AggregateUtil, FlinkRelOptUtil}
 
 import org.apache.calcite.plan.{RelOptRule, RelOptRuleOperand}
@@ -36,7 +37,7 @@ import scala.collection.JavaConversions._
   * when the following conditions are met:
   * 1. there is no local aggregate,
   * 2. the aggregate has non-empty grouping and two phase aggregate strategy is enabled,
-  * 3. the input is [[BatchExecExpand]] and there is at least one expand row
+  * 3. the input is [[BatchPhysicalExpand]] and there is at least one expand row
   * which the columns for grouping are all constant.
   */
 abstract class EnforceLocalAggRuleBase(
@@ -51,7 +52,9 @@ abstract class EnforceLocalAggRuleBase(
     isTwoPhaseAggWorkable(aggFunctions, tableConfig)
   }
 
-  protected def hasConstantShuffleKey(shuffleKey: Array[Int], expand: BatchExecExpand): Boolean = {
+  protected def hasConstantShuffleKey(
+      shuffleKey: Array[Int],
+      expand: BatchPhysicalExpand): Boolean = {
     // if all shuffle-key columns in a expand row are constant, this row will be shuffled to
     // a single node.
     // add local aggregate to greatly reduce the output data
@@ -73,7 +76,7 @@ abstract class EnforceLocalAggRuleBase(
     val aggCallToAggFunction = completeAgg.getAggCallToAggFunction
 
     val (_, aggBufferTypes, _) = AggregateUtil.transformToBatchAggregateFunctions(
-      aggCalls, inputRowType)
+      FlinkTypeFactory.toLogicalRowType(inputRowType), aggCalls)
 
     val traitSet = cluster.getPlanner
       .emptyTraitSet
@@ -102,7 +105,7 @@ abstract class EnforceLocalAggRuleBase(
 
   protected def createExchange(
       completeAgg: BatchExecGroupAggregateBase,
-      input: RelNode): BatchExecExchange = {
+      input: RelNode): BatchPhysicalExchange = {
     val cluster = completeAgg.getCluster
     val grouping = completeAgg.getGrouping
 
@@ -114,7 +117,7 @@ abstract class EnforceLocalAggRuleBase(
       .replace(FlinkConventions.BATCH_PHYSICAL)
       .replace(newDistribution)
 
-    new BatchExecExchange(cluster, newTraitSet, input, newDistribution)
+    new BatchPhysicalExchange(cluster, newTraitSet, input, newDistribution)
   }
 
   protected def createGlobalAgg(

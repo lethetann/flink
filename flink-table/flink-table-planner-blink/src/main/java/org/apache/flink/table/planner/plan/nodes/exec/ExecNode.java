@@ -19,8 +19,12 @@
 package org.apache.flink.table.planner.plan.nodes.exec;
 
 import org.apache.flink.api.dag.Transformation;
+import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.delegation.Planner;
+import org.apache.flink.table.planner.plan.nodes.exec.visitor.ExecNodeVisitor;
 import org.apache.flink.table.planner.plan.nodes.physical.FlinkPhysicalRel;
+import org.apache.flink.table.types.logical.LogicalType;
+import org.apache.flink.table.types.logical.RowType;
 
 import java.util.List;
 
@@ -31,44 +35,69 @@ import java.util.List;
  */
 public interface ExecNode<T> {
 
-	/**
-	 * Returns a list of this node's input nodes.
-	 * If there are no inputs, returns an empty list, not null.
-	 *
-	 * @return List of this node's input nodes
-	 */
-	List<ExecNode<?>> getInputNodes();
+    /**
+     * Returns a string which describes this node. TODO rename to `getDescription` once all
+     * ExecNodes do not extend from FlinkPhysicalRel, because RelNode already has `getDescription`
+     * method.
+     */
+    String getDesc();
 
-	/**
-	 * Returns a list of this node's input edges.
-	 * If there are no inputs, returns an empty list, not null.
-	 *
-	 * @return List of this node's input edges
-	 */
-	List<ExecEdge> getInputEdges();
+    /**
+     * Returns the output {@link LogicalType} of this node, this type should be consistent with the
+     * type parameter {@link T}.
+     *
+     * <p>Such as, if T is {@link RowData}, the output type should be {@link RowType}. please refer
+     * to the JavaDoc of {@link RowData} for more info about mapping of logical types to internal
+     * data structures.
+     */
+    LogicalType getOutputType();
 
-	/**
-	 * Replaces the <code>ordinalInParent</code><sup>th</sup> input.
-	 * You must override this method if you override {@link #getInputNodes}.
-	 *
-	 * @param ordinalInParent Position of the child input, 0 is the first
-	 * @param newInputNode New node that should be put at position ordinalInParent
-	 */
-	void replaceInputNode(int ordinalInParent, ExecNode<?> newInputNode);
+    /**
+     * Returns a list of this node's input nodes. If there are no inputs, returns an empty list, not
+     * null.
+     *
+     * @return List of this node's input nodes
+     */
+    List<ExecNode<?>> getInputNodes();
 
-	/**
-	 * Translates this node into a Flink operator.
-	 *
-	 * <p>NOTE: This method should return same translate result if called multiple times.
-	 *
-	 * @param planner The {@link Planner} of the translated Table.
-	 */
-	Transformation<T> translateToPlan(Planner planner);
+    /**
+     * Returns a list of this node's input edges. If there are no inputs, returns an empty list, not
+     * null.
+     *
+     * @return List of this node's input edges
+     */
+    List<ExecEdge> getInputEdges();
 
-	/**
-	 * Accepts a visit from a {@link ExecNodeVisitor}.
-	 *
-	 * @param visitor ExecNodeVisitor
-	 */
-	void accept(ExecNodeVisitor visitor);
+    /**
+     * Replaces the <code>ordinalInParent</code><sup>th</sup> input. Once we introduce source node
+     * and target node for {@link ExecEdge}, we will remove this method.
+     *
+     * @param ordinalInParent Position of the child input, 0 is the first
+     * @param newInputNode New node that should be put at position ordinalInParent
+     */
+    void replaceInputNode(int ordinalInParent, ExecNode<?> newInputNode);
+
+    /**
+     * Replaces the <code>ordinalInParent</code><sup>th</sup> edge.
+     *
+     * @param ordinalInParent Position of the child input, 0 is the first
+     * @param newInputEdge New edge that should be put at position ordinalInParent
+     */
+    void replaceInputEdge(int ordinalInParent, ExecEdge newInputEdge);
+
+    /**
+     * Translates this node into a Flink operator.
+     *
+     * <p>NOTE: This method should return same translate result if called multiple times.
+     *
+     * @param planner The {@link Planner} of the translated Table.
+     */
+    Transformation<T> translateToPlan(Planner planner);
+
+    /**
+     * Accepts a visit from a {@link ExecNodeVisitor}.
+     *
+     * @param visitor ExecNodeVisitor
+     */
+    void accept(ExecNodeVisitor visitor);
 }

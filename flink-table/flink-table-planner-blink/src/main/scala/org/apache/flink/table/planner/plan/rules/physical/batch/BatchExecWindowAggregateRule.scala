@@ -49,7 +49,7 @@ import scala.collection.JavaConversions._
   * Rule to convert a [[FlinkLogicalWindowAggregate]] into a
   * {{{
   *   BatchExecHash(or Sort)WindowAggregate (global)
-  *   +- BatchExecExchange (hash by group keys if group keys is not empty, else singleton)
+  *   +- BatchPhysicalExchange (hash by group keys if group keys is not empty, else singleton)
   *      +- BatchExecLocalHash(or Sort)WindowAggregate (local)
   *         +- input of window agg
   * }}}
@@ -57,7 +57,7 @@ import scala.collection.JavaConversions._
   * and [[OptimizerConfigOptions.TABLE_OPTIMIZER_AGG_PHASE_STRATEGY]] is TWO_PHASE, or
   * {{{
   *   BatchExecHash(or Sort)WindowAggregate
-  *   +- BatchExecExchange (hash by group keys if group keys is not empty, else singleton)
+  *   +- BatchPhysicalExchange (hash by group keys if group keys is not empty, else singleton)
   *      +- input of window agg
   * }}}
   * when some aggregate functions are not mergeable
@@ -101,7 +101,7 @@ class BatchExecWindowAggregateRule
     val (auxGroupSet, aggCallsWithoutAuxGroupCalls) = AggregateUtil.checkAndSplitAggCalls(agg)
 
     val (_, aggBufferTypes, aggregates) = AggregateUtil.transformToBatchAggregateFunctions(
-      aggCallsWithoutAuxGroupCalls, input.getRowType)
+      FlinkTypeFactory.toLogicalRowType(input.getRowType), aggCallsWithoutAuxGroupCalls)
     val aggCallToAggFunction = aggCallsWithoutAuxGroupCalls.zip(aggregates)
     val internalAggBufferTypes = aggBufferTypes.map(_.map(fromDataTypeToLogicalType))
     val tableConfig = call.getPlanner.getContext.unwrap(classOf[FlinkContext]).getTableConfig

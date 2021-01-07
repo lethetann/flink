@@ -35,7 +35,7 @@ import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil
 import org.apache.flink.table.planner.plan.utils.AggregateUtil.transformToBatchAggregateInfoList
 import org.apache.flink.table.planner.plan.utils.FlinkRelMdUtil
 import org.apache.flink.table.runtime.operators.CodeGenOperatorFactory
-import org.apache.flink.table.runtime.operators.aggregate.BytesHashMap
+import org.apache.flink.table.runtime.operators.aggregate.BytesMap
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo
 
 import org.apache.calcite.plan.{RelOptCluster, RelOptCost, RelOptPlanner, RelTraitSet}
@@ -93,9 +93,9 @@ abstract class BatchExecHashWindowAggregateBase(
     // assume memory is enough to hold hashTable to simplify the estimation because spill will not
     // happen under the assumption
     //  We aim for a 200% utilization of the bucket table.
-    val bucketSize = rowCnt * BytesHashMap.BUCKET_SIZE / FlinkCost.HASH_COLLISION_WEIGHT
+    val bucketSize = rowCnt * BytesMap.BUCKET_SIZE / FlinkCost.HASH_COLLISION_WEIGHT
     val rowAvgSize = FlinkRelMdUtil.binaryRowAverageSize(this)
-    val recordSize = rowCnt * (rowAvgSize + BytesHashMap.RECORD_EXTRA_LENGTH)
+    val recordSize = rowCnt * (rowAvgSize + BytesMap.RECORD_EXTRA_LENGTH)
     val memCost = bucketSize + recordSize
     val costFactory = planner.getCostFactory.asInstanceOf[FlinkCostFactory]
     costFactory.makeCost(rowCnt, hashCpuCost + aggFunctionCpuCost, 0, 0, memCost)
@@ -113,7 +113,7 @@ abstract class BatchExecHashWindowAggregateBase(
     val inputType = FlinkTypeFactory.toLogicalRowType(inputRowType)
 
     val aggInfos = transformToBatchAggregateInfoList(
-      aggCallToAggFunction.map(_._1), aggInputRowType)
+      FlinkTypeFactory.toLogicalRowType(aggInputRowType), aggCallToAggFunction.map(_._1))
 
     val groupBufferLimitSize = config.getConfiguration.getInteger(
       ExecutionConfigOptions.TABLE_EXEC_WINDOW_AGG_BUFFER_SIZE_LIMIT)

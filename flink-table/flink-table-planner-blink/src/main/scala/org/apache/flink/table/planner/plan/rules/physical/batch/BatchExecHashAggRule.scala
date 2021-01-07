@@ -18,7 +18,7 @@
 package org.apache.flink.table.planner.plan.rules.physical.batch
 
 import org.apache.flink.table.api.config.OptimizerConfigOptions
-import org.apache.flink.table.planner.calcite.FlinkContext
+import org.apache.flink.table.planner.calcite.{FlinkContext, FlinkTypeFactory}
 import org.apache.flink.table.planner.plan.`trait`.FlinkRelDistribution
 import org.apache.flink.table.planner.plan.nodes.FlinkConventions
 import org.apache.flink.table.planner.plan.nodes.logical.FlinkLogicalAggregate
@@ -38,7 +38,7 @@ import scala.collection.JavaConversions._
   * and converts it to
   * {{{
   *   BatchExecHashAggregate (global)
-  *   +- BatchExecExchange (hash by group keys if group keys is not empty, else singleton)
+  *   +- BatchPhysicalExchange (hash by group keys if group keys is not empty, else singleton)
   *      +- BatchExecLocalHashAggregate (local)
   *         +- input of agg
   * }}}
@@ -46,7 +46,7 @@ import scala.collection.JavaConversions._
   * and [[OptimizerConfigOptions.TABLE_OPTIMIZER_AGG_PHASE_STRATEGY]] is TWO_PHASE, or
   * {{{
   *   BatchExecHashAggregate
-  *   +- BatchExecExchange (hash by group keys if group keys is not empty, else singleton)
+  *   +- BatchPhysicalExchange (hash by group keys if group keys is not empty, else singleton)
   *      +- input of agg
   * }}}
   * when some aggregate functions are not mergeable
@@ -87,7 +87,7 @@ class BatchExecHashAggRule
     val (auxGroupSet, aggCallsWithoutAuxGroupCalls) = AggregateUtil.checkAndSplitAggCalls(agg)
 
     val (_, aggBufferTypes, aggFunctions) = AggregateUtil.transformToBatchAggregateFunctions(
-      aggCallsWithoutAuxGroupCalls, inputRowType)
+      FlinkTypeFactory.toLogicalRowType(inputRowType), aggCallsWithoutAuxGroupCalls)
 
     val aggCallToAggFunction = aggCallsWithoutAuxGroupCalls.zip(aggFunctions)
     val aggProvidedTraitSet = agg.getTraitSet.replace(FlinkConventions.BATCH_PHYSICAL)

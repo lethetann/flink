@@ -28,13 +28,13 @@ Flink SQL makes it simple to develop streaming applications using standard SQL. 
 {:toc}
 
 
-### Prerequisetes 
+### Prerequisites 
 
 You only need to have basic knowledge of SQL to follow along. No other programming experience is assumed. 
 
 ### Installation
 
-There are multiple ways to install Flink. For experimentation, the most common option is to download the binaries and run them locally. You can follow the steps in [local nstallation]({%link try-flink/local_installation.md %}) to set up an environment for the rest of the tutorial. 
+There are multiple ways to install Flink. For experimentation, the most common option is to download the binaries and run them locally. You can follow the steps in [local installation]({% link try-flink/local_installation.md %}) to set up an environment for the rest of the tutorial. 
 
 Once you're all set, use the following command to start a local cluster from the installation folder:
 
@@ -54,7 +54,7 @@ To start the SQL client, run the `sql-client` script from the installation folde
  {% endhighlight %} 
 
 ### Hello World
- 
+
 Once the SQL client, our query editor, is up and running, it's time to start writing queries.
 Let's start with printing 'Hello World', using the following simple query:
  
@@ -86,9 +86,9 @@ It differs from a traditional database because Flink does not manage data at res
 
 Flink data processing pipelines begin with source tables. Source tables produce rows operated over during the query's execution; they are the tables referenced in the `FROM` clause of a query.  These could be Kafka topics, databases, filesystems, or any other system that Flink knows how to consume. 
 
-Tables can be defined through the SQL client or using environment config file. The SQL client support [SQL DDL commands]({{ site.baseurl }}/dev/table/sql) similar to traditional SQL. Standard SQL DDL is used to [create]({{ site.baseurl }}/dev/table/sql/create.html), [alter]({{ site.baseurl }}/dev/table/sql/alter.html), [drop]({{ site.baseurl }}/dev/table/sql/drop.html) tables. 
+Tables can be defined through the SQL client or using environment config file. The SQL client support [SQL DDL commands]({% link dev/table/sql/index.md %}) similar to traditional SQL. Standard SQL DDL is used to [create]({% link dev/table/sql/create.md %}), [alter]({% link dev/table/sql/alter.md %}), [drop]({% link dev/table/sql/drop.md %}) tables. 
 
-Flink has a support for different [connectors]({% link dev/table/connect.md %}) and [formats]({%link dev/table/connectors/formats/index.md %}) that can be used with tables. Following is an example to define a source table backed by a [CSV file]({%link dev/table/connectors/formats/csv.md %}) with `emp_id`, `name`, `dept_id` as columns in a `CREATE` table statement.
+Flink has a support for different [connectors]({% link dev/table/connect.md %}) and [formats]({% link dev/table/connectors/formats/index.md %}) that can be used with tables. Following is an example to define a source table backed by a [CSV file]({% link dev/table/connectors/formats/csv.md %}) with `emp_id`, `name`, `dept_id` as columns in a `CREATE` table statement.
 
 {% highlight sql %}
 CREATE TABLE employee_information (
@@ -122,7 +122,7 @@ A [continuous query]({% link dev/table/streaming/dynamic_tables.md %}#continuous
 Aggregations on continuous streams need to store aggregated results continuously during the execution of the query. For example, suppose you need to count the number of employees for each department from an incoming data stream. The query needs to maintain the most up to date count for each department to output timely results as new rows are processed.
 
  {% highlight sql %}
- SELECT 
+SELECT 
 	dept_id,
 	COUNT(*) as emp_count 
 FROM employee_information 
@@ -136,7 +136,7 @@ Such queries are considered _stateful_. Flink's advanced fault-tolerance mechani
 When running this query, the SQL client provides output in real-time but in a read-only fashion. Storing results - to power a report or dashboard - requires writing out to another table. This can be achieved using an `INSERT INTO` statement. The table referenced in this clause is known as a sink table. An `INSERT INTO` statement will be submitted as a detached query to the Flink cluster. 
 
  {% highlight sql %}
- INSERT INTO department_counts
+INSERT INTO department_counts
  SELECT 
 	dept_id,
 	COUNT(*) as emp_count 
@@ -156,12 +156,12 @@ In particular, Apache Flink's [user mailing list](https://flink.apache.org/commu
 
 ## Resources to Learn more
 
-* [SQL]({{ site.baseurl }}/dev/table/sql/index.html): Supported operations and syntax for SQL.
-* [SQL Client]({{ site.baseurl }}/dev/table/sqlClient.html): Play around with Flink SQL and submit a table program to a cluster without programming knowledge
-* [Concepts & Common API]({{ site.baseurl }}/dev/table/common.html): Shared concepts and APIs of the Table API and SQL.
-* [Streaming Concepts]({{ site.baseurl }}/dev/table/streaming): Streaming-specific documentation for the Table API or SQL such as configuration of time attributes and handling of updating results.
-* [Built-in Functions]({{ site.baseurl }}/dev/table/functions/systemFunctions.html): Supported functions in Table API and SQL.
-* [Connect to External Systems]({{ site.baseurl }}/dev/table/connect.html): Available connectors and formats for reading and writing data to external systems.
+* [SQL]({% link dev/table/sql/index.md %}): Supported operations and syntax for SQL.
+* [SQL Client]({% link dev/table/sqlClient.md %}): Play around with Flink SQL and submit a table program to a cluster without programming knowledge
+* [Concepts & Common API]({% link dev/table/common.md %}): Shared concepts and APIs of the Table API and SQL.
+* [Streaming Concepts]({% link dev/table/streaming/index.md %}): Streaming-specific documentation for the Table API or SQL such as configuration of time attributes and handling of updating results.
+* [Built-in Functions]({% link dev/table/functions/systemFunctions.md %}): Supported functions in Table API and SQL.
+* [Connect to External Systems]({% link dev/table/connect.md %}): Available connectors and formats for reading and writing data to external systems.
 
 ---------------
 
