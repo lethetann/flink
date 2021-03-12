@@ -23,7 +23,7 @@ import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAda
 import org.apache.flink.runtime.concurrent.ManuallyTriggeredScheduledExecutor;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.failover.flip1.TestRestartBackoffTimeStrategy;
-import org.apache.flink.runtime.jobgraph.JobGraph;
+import org.apache.flink.runtime.jobgraph.JobGraphTestUtils;
 import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobmanager.slots.TaskManagerGateway;
 import org.apache.flink.runtime.scheduler.SchedulerBase;
@@ -228,13 +228,14 @@ public class ExecutionGraphSuspendTest extends TestLogger {
         final ManuallyTriggeredScheduledExecutor taskRestartExecutor =
                 new ManuallyTriggeredScheduledExecutor();
         final SchedulerBase scheduler =
-                SchedulerTestingUtils.newSchedulerBuilder(new JobGraph())
+                SchedulerTestingUtils.newSchedulerBuilder(
+                                JobGraphTestUtils.emptyJobGraph(),
+                                ComponentMainThreadExecutorServiceAdapter.forMainThread())
                         .setRestartBackoffTimeStrategy(
                                 new TestRestartBackoffTimeStrategy(true, Long.MAX_VALUE))
                         .setDelayExecutor(taskRestartExecutor)
                         .build();
 
-        scheduler.initialize(ComponentMainThreadExecutorServiceAdapter.forMainThread());
         scheduler.startScheduling();
 
         final ExecutionGraph eg = scheduler.getExecutionGraph();
@@ -311,14 +312,15 @@ public class ExecutionGraphSuspendTest extends TestLogger {
         vertex.setParallelism(parallelism);
 
         final SchedulerBase scheduler =
-                SchedulerTestingUtils.newSchedulerBuilder(new JobGraph(vertex))
+                SchedulerTestingUtils.newSchedulerBuilder(
+                                JobGraphTestUtils.streamingJobGraph(vertex),
+                                ComponentMainThreadExecutorServiceAdapter.forMainThread())
                         .setExecutionSlotAllocatorFactory(
                                 SchedulerTestingUtils.newSlotSharingExecutionSlotAllocatorFactory(
                                         TestingPhysicalSlotProvider
                                                 .createWithLimitedAmountOfPhysicalSlots(
                                                         parallelism, gateway)))
                         .build();
-        scheduler.initialize(ComponentMainThreadExecutorServiceAdapter.forMainThread());
         return scheduler;
     }
 }

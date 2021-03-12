@@ -18,9 +18,9 @@
 
 package org.apache.flink.runtime.executiongraph;
 
+import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.Archiveable;
 import org.apache.flink.api.common.ExecutionConfig;
-import org.apache.flink.api.common.InputDependencyConstraint;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.accumulators.Accumulator;
 import org.apache.flink.api.common.accumulators.AccumulatorHelper;
@@ -83,13 +83,13 @@ public class ExecutionJobVertex
         implements AccessExecutionJobVertex, Archiveable<ArchivedExecutionJobVertex> {
 
     /** Use the same log for all ExecutionGraph classes. */
-    private static final Logger LOG = ExecutionGraph.LOG;
+    private static final Logger LOG = DefaultExecutionGraph.LOG;
 
     public static final int VALUE_NOT_SET = -1;
 
     private final Object stateMonitor = new Object();
 
-    private final ExecutionGraph graph;
+    private final InternalExecutionGraphAccessor graph;
 
     private final JobVertex jobVertex;
 
@@ -125,13 +125,13 @@ public class ExecutionJobVertex
 
     private InputSplitAssigner splitAssigner;
 
-    ExecutionJobVertex(
-            ExecutionGraph graph,
+    @VisibleForTesting
+    public ExecutionJobVertex(
+            InternalExecutionGraphAccessor graph,
             JobVertex jobVertex,
             int defaultParallelism,
             int maxPriorAttemptsHistoryLength,
             Time timeout,
-            long initialGlobalModVersion,
             long createTimestamp)
             throws JobException {
 
@@ -195,7 +195,6 @@ public class ExecutionJobVertex
                             i,
                             producedDataSets,
                             timeout,
-                            initialGlobalModVersion,
                             createTimestamp,
                             maxPriorAttemptsHistoryLength);
 
@@ -298,7 +297,7 @@ public class ExecutionJobVertex
         this.maxParallelism = maxParallelism;
     }
 
-    public ExecutionGraph getGraph() {
+    public InternalExecutionGraphAccessor getGraph() {
         return graph;
     }
 
@@ -363,10 +362,6 @@ public class ExecutionJobVertex
 
     public List<IntermediateResult> getInputs() {
         return inputs;
-    }
-
-    public InputDependencyConstraint getInputDependencyConstraint() {
-        return getJobVertex().getInputDependencyConstraint();
     }
 
     public Collection<OperatorCoordinatorHolder> getOperatorCoordinators() {
@@ -459,12 +454,7 @@ public class ExecutionJobVertex
 
             this.inputs.add(ires);
 
-            int consumerIndex = ires.registerConsumer();
-
-            for (int i = 0; i < parallelism; i++) {
-                ExecutionVertex ev = taskVertices[i];
-                ev.connectSource(num, ires, edge, consumerIndex);
-            }
+            EdgeManagerBuildUtil.connectVertexToResult(this, ires, edge.getDistributionPattern());
         }
     }
 
@@ -501,31 +491,6 @@ public class ExecutionJobVertex
     public void fail(Throwable t) {
         for (ExecutionVertex ev : getTaskVertices()) {
             ev.fail(t);
-        }
-    }
-
-    public void resetForNewExecution(final long timestamp, final long expectedGlobalModVersion)
-            throws GlobalModVersionMismatch {
-
-        synchronized (stateMonitor) {
-            // check and reset the sharing groups with scheduler hints
-            for (int i = 0; i < parallelism; i++) {
-                taskVertices[i].resetForNewExecution(timestamp, expectedGlobalModVersion);
-            }
-
-            // set up the input splits again
-            try {
-                if (this.inputSplits != null) {
-                    // lazy assignment
-                    @SuppressWarnings("unchecked")
-                    InputSplitSource<InputSplit> splitSource =
-                            (InputSplitSource<InputSplit>) jobVertex.getInputSplitSource();
-                    this.splitAssigner = splitSource.getInputSplitAssigner(this.inputSplits);
-                }
-            } catch (Throwable t) {
-                throw new RuntimeException(
-                        "Re-creating the input split assigner failed: " + t.getMessage(), t);
-            }
         }
     }
 

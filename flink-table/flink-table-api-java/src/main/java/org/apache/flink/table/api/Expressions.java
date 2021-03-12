@@ -23,6 +23,7 @@ import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.table.expressions.ApiExpressionUtils;
 import org.apache.flink.table.expressions.Expression;
 import org.apache.flink.table.expressions.ResolvedExpression;
+import org.apache.flink.table.expressions.SqlCallExpression;
 import org.apache.flink.table.expressions.TimePointUnit;
 import org.apache.flink.table.functions.BuiltInFunctionDefinitions;
 import org.apache.flink.table.functions.FunctionDefinition;
@@ -530,6 +531,19 @@ public final class Expressions {
         return apiCall(functionInstance, arguments);
     }
 
+    /**
+     * A call to a SQL expression.
+     *
+     * <p>The given string is parsed and translated into an {@link Expression} during planning. Only
+     * the translated expression is evaluated during runtime.
+     *
+     * <p>Note: Currently, calls are limited to simple scalar expressions. Calls to aggregate or
+     * table-valued functions are not supported. Sub-queries are also not allowed.
+     */
+    public static ApiExpression callSql(String sqlExpression) {
+        return apiSqlCall(sqlExpression);
+    }
+
     private static ApiExpression apiCall(FunctionDefinition functionDefinition, Object... args) {
         List<Expression> arguments =
                 Stream.of(args)
@@ -554,5 +568,9 @@ public final class Expressions {
                         .map(ApiExpressionUtils::objectToExpression)
                         .collect(Collectors.toList());
         return new ApiExpression(unresolvedCall(functionDefinition, arguments));
+    }
+
+    private static ApiExpression apiSqlCall(String sqlExpression) {
+        return new ApiExpression(new SqlCallExpression(sqlExpression));
     }
 }

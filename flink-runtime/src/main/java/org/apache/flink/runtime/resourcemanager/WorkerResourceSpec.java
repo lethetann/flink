@@ -21,6 +21,7 @@ package org.apache.flink.runtime.resourcemanager;
 import org.apache.flink.api.common.resources.CPUResource;
 import org.apache.flink.configuration.MemorySize;
 import org.apache.flink.runtime.clusterframework.TaskExecutorProcessSpec;
+import org.apache.flink.runtime.clusterframework.types.ResourceProfile;
 import org.apache.flink.util.Preconditions;
 
 import java.io.Serializable;
@@ -45,18 +46,22 @@ public final class WorkerResourceSpec implements Serializable {
 
     private final MemorySize managedMemSize;
 
+    private final int numSlots;
+
     private WorkerResourceSpec(
             CPUResource cpuCores,
             MemorySize taskHeapSize,
             MemorySize taskOffHeapSize,
             MemorySize networkMemSize,
-            MemorySize managedMemSize) {
+            MemorySize managedMemSize,
+            int numSlots) {
 
         this.cpuCores = Preconditions.checkNotNull(cpuCores);
         this.taskHeapSize = Preconditions.checkNotNull(taskHeapSize);
         this.taskOffHeapSize = Preconditions.checkNotNull(taskOffHeapSize);
         this.networkMemSize = Preconditions.checkNotNull(networkMemSize);
         this.managedMemSize = Preconditions.checkNotNull(managedMemSize);
+        this.numSlots = numSlots;
     }
 
     public static WorkerResourceSpec fromTaskExecutorProcessSpec(
@@ -67,7 +72,20 @@ public final class WorkerResourceSpec implements Serializable {
                 taskExecutorProcessSpec.getTaskHeapSize(),
                 taskExecutorProcessSpec.getTaskOffHeapSize(),
                 taskExecutorProcessSpec.getNetworkMemSize(),
-                taskExecutorProcessSpec.getManagedMemorySize());
+                taskExecutorProcessSpec.getManagedMemorySize(),
+                taskExecutorProcessSpec.getNumSlots());
+    }
+
+    public static WorkerResourceSpec fromTotalResourceProfile(
+            final ResourceProfile resourceProfile, final int numSlots) {
+        Preconditions.checkNotNull(resourceProfile);
+        return new WorkerResourceSpec(
+                (CPUResource) resourceProfile.getCpuCores(),
+                resourceProfile.getTaskHeapMemory(),
+                resourceProfile.getTaskOffHeapMemory(),
+                resourceProfile.getNetworkMemory(),
+                resourceProfile.getManagedMemory(),
+                numSlots);
     }
 
     public CPUResource getCpuCores() {
@@ -90,10 +108,14 @@ public final class WorkerResourceSpec implements Serializable {
         return managedMemSize;
     }
 
+    public int getNumSlots() {
+        return numSlots;
+    }
+
     @Override
     public int hashCode() {
         return Objects.hash(
-                cpuCores, taskHeapSize, taskOffHeapSize, networkMemSize, managedMemSize);
+                cpuCores, taskHeapSize, taskOffHeapSize, networkMemSize, managedMemSize, numSlots);
     }
 
     @Override
@@ -106,7 +128,8 @@ public final class WorkerResourceSpec implements Serializable {
                     && Objects.equals(this.taskHeapSize, that.taskHeapSize)
                     && Objects.equals(this.taskOffHeapSize, that.taskOffHeapSize)
                     && Objects.equals(this.networkMemSize, that.networkMemSize)
-                    && Objects.equals(this.managedMemSize, that.managedMemSize);
+                    && Objects.equals(this.managedMemSize, that.managedMemSize)
+                    && Objects.equals(this.numSlots, that.numSlots);
         }
         return false;
     }
@@ -124,6 +147,8 @@ public final class WorkerResourceSpec implements Serializable {
                 + networkMemSize.toHumanReadableString()
                 + ", managedMemSize="
                 + managedMemSize.toHumanReadableString()
+                + ", numSlots="
+                + numSlots
                 + "}";
     }
 
@@ -134,6 +159,7 @@ public final class WorkerResourceSpec implements Serializable {
         private MemorySize taskOffHeapSize = MemorySize.ZERO;
         private MemorySize networkMemSize = MemorySize.ZERO;
         private MemorySize managedMemSize = MemorySize.ZERO;
+        private int numSlots = 1;
 
         public Builder() {}
 
@@ -162,9 +188,19 @@ public final class WorkerResourceSpec implements Serializable {
             return this;
         }
 
+        public Builder setNumSlots(int numSlots) {
+            this.numSlots = numSlots;
+            return this;
+        }
+
         public WorkerResourceSpec build() {
             return new WorkerResourceSpec(
-                    cpuCores, taskHeapSize, taskOffHeapSize, networkMemSize, managedMemSize);
+                    cpuCores,
+                    taskHeapSize,
+                    taskOffHeapSize,
+                    networkMemSize,
+                    managedMemSize,
+                    numSlots);
         }
     }
 }

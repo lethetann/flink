@@ -27,9 +27,7 @@ import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
 import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutor;
 import org.apache.flink.runtime.execution.ExecutionState;
-import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
-import org.apache.flink.runtime.executiongraph.JobStatusListener;
 import org.apache.flink.runtime.executiongraph.TaskExecutionStateTransition;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
@@ -47,7 +45,6 @@ import org.apache.flink.runtime.operators.coordination.OperatorCoordinator;
 import org.apache.flink.runtime.operators.coordination.OperatorEvent;
 import org.apache.flink.runtime.query.KvStateLocation;
 import org.apache.flink.runtime.query.UnknownKvStateLocation;
-import org.apache.flink.runtime.rest.handler.legacy.backpressure.OperatorBackPressureStats;
 import org.apache.flink.runtime.state.KeyGroupRange;
 import org.apache.flink.runtime.taskmanager.TaskExecutionState;
 import org.apache.flink.util.FlinkException;
@@ -56,7 +53,6 @@ import javax.annotation.Nullable;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -66,14 +62,9 @@ import java.util.concurrent.CompletableFuture;
  * instantiated.
  *
  * <p>Implementations can expect that methods will not be invoked concurrently. In fact, all
- * invocations will originate from a thread in the {@link ComponentMainThreadExecutor}, which will
- * be passed via {@link #initialize(ComponentMainThreadExecutor)}.
+ * invocations will originate from a thread in the {@link ComponentMainThreadExecutor}.
  */
 public interface SchedulerNG {
-
-    void initialize(ComponentMainThreadExecutor mainThreadExecutor);
-
-    void registerJobStatusListener(JobStatusListener jobStatusListener);
 
     void startScheduling();
 
@@ -100,7 +91,7 @@ public interface SchedulerNG {
 
     void notifyPartitionDataAvailable(ResultPartitionID partitionID);
 
-    ArchivedExecutionGraph requestJob();
+    ExecutionGraphInfo requestJob();
 
     JobStatus requestJobStatus();
 
@@ -135,11 +126,6 @@ public interface SchedulerNG {
 
     // ------------------------------------------------------------------------
 
-    Optional<OperatorBackPressureStats> requestOperatorBackPressureStats(JobVertexID jobVertexId)
-            throws FlinkException;
-
-    // ------------------------------------------------------------------------
-
     CompletableFuture<String> triggerSavepoint(@Nullable String targetDirectory, boolean cancelJob);
 
     void acknowledgeCheckpoint(
@@ -149,10 +135,15 @@ public interface SchedulerNG {
             CheckpointMetrics checkpointMetrics,
             TaskStateSnapshot checkpointState);
 
+    void reportCheckpointMetrics(
+            JobID jobID,
+            ExecutionAttemptID executionAttemptID,
+            long checkpointId,
+            CheckpointMetrics checkpointMetrics);
+
     void declineCheckpoint(DeclineCheckpoint decline);
 
-    CompletableFuture<String> stopWithSavepoint(
-            String targetDirectory, boolean advanceToEndOfEventTime);
+    CompletableFuture<String> stopWithSavepoint(String targetDirectory, boolean terminate);
 
     // ------------------------------------------------------------------------
     //  Operator Coordinator related methods

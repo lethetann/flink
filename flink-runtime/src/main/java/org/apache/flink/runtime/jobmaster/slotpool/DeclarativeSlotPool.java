@@ -26,6 +26,7 @@ import org.apache.flink.runtime.jobmaster.SlotInfo;
 import org.apache.flink.runtime.slots.ResourceRequirement;
 import org.apache.flink.runtime.taskexecutor.slot.SlotOffer;
 import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
+import org.apache.flink.runtime.util.ResourceCounter;
 
 import javax.annotation.Nullable;
 
@@ -54,6 +55,13 @@ public interface DeclarativeSlotPool {
      * @param decrement decrement by which to decrease the resource requirements
      */
     void decreaseResourceRequirementsBy(ResourceCounter decrement);
+
+    /**
+     * Sets the resource requirements to the given resourceRequirements.
+     *
+     * @param resourceRequirements new resource requirements
+     */
+    void setResourceRequirements(ResourceCounter resourceRequirements);
 
     /**
      * Returns the current resource requirements.

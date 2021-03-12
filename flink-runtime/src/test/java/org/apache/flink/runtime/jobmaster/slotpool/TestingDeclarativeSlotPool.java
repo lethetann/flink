@@ -26,6 +26,7 @@ import org.apache.flink.runtime.jobmaster.SlotInfo;
 import org.apache.flink.runtime.slots.ResourceRequirement;
 import org.apache.flink.runtime.taskexecutor.slot.SlotOffer;
 import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
+import org.apache.flink.runtime.util.ResourceCounter;
 import org.apache.flink.util.function.QuadFunction;
 import org.apache.flink.util.function.TriFunction;
 
@@ -72,6 +73,8 @@ final class TestingDeclarativeSlotPool implements DeclarativeSlotPool {
 
     private final LongConsumer releaseIdleSlotsConsumer;
 
+    private final Consumer<ResourceCounter> setResourceRequirementsConsumer;
+
     TestingDeclarativeSlotPool(
             Consumer<ResourceCounter> increaseResourceRequirementsByConsumer,
             Consumer<ResourceCounter> decreaseResourceRequirementsByConsumer,
@@ -90,7 +93,8 @@ final class TestingDeclarativeSlotPool implements DeclarativeSlotPool {
             BiFunction<AllocationID, ResourceProfile, PhysicalSlot> reserveFreeSlotFunction,
             TriFunction<AllocationID, Throwable, Long, ResourceCounter> freeReservedSlotFunction,
             Function<ResourceID, Boolean> containsSlotsFunction,
-            LongConsumer releaseIdleSlotsConsumer) {
+            LongConsumer releaseIdleSlotsConsumer,
+            Consumer<ResourceCounter> setResourceRequirementsConsumer) {
         this.increaseResourceRequirementsByConsumer = increaseResourceRequirementsByConsumer;
         this.decreaseResourceRequirementsByConsumer = decreaseResourceRequirementsByConsumer;
         this.getResourceRequirementsSupplier = getResourceRequirementsSupplier;
@@ -103,6 +107,7 @@ final class TestingDeclarativeSlotPool implements DeclarativeSlotPool {
         this.freeReservedSlotFunction = freeReservedSlotFunction;
         this.containsSlotsFunction = containsSlotsFunction;
         this.releaseIdleSlotsConsumer = releaseIdleSlotsConsumer;
+        this.setResourceRequirementsConsumer = setResourceRequirementsConsumer;
     }
 
     @Override
@@ -113,6 +118,11 @@ final class TestingDeclarativeSlotPool implements DeclarativeSlotPool {
     @Override
     public void decreaseResourceRequirementsBy(ResourceCounter decrement) {
         decreaseResourceRequirementsByConsumer.accept(decrement);
+    }
+
+    @Override
+    public void setResourceRequirements(ResourceCounter resourceRequirements) {
+        setResourceRequirementsConsumer.accept(resourceRequirements);
     }
 
     @Override

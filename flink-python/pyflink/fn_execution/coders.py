@@ -32,7 +32,8 @@ except:
 __all__ = ['RowCoder', 'BigIntCoder', 'TinyIntCoder', 'BooleanCoder',
            'SmallIntCoder', 'IntCoder', 'FloatCoder', 'DoubleCoder',
            'BinaryCoder', 'CharCoder', 'DateCoder', 'TimeCoder',
-           'TimestampCoder', 'BasicArrayCoder', 'PrimitiveArrayCoder', 'MapCoder', 'DecimalCoder']
+           'TimestampCoder', 'BasicArrayCoder', 'PrimitiveArrayCoder', 'MapCoder', 'DecimalCoder',
+           'TimeWindowCoder', 'CountWindowCoder']
 
 # table coders
 FLINK_SCALAR_FUNCTION_SCHEMA_CODER_URN = "flink:coder:schema:scalar_function:v1"
@@ -241,6 +242,22 @@ class DataStreamCoFlatMapCoder(BaseCoder):
 
     def __hash__(self):
         return hash(self._field_coders)
+
+
+class TimeWindowCoder(BaseCoder):
+    """
+    Coder for TimeWindow.
+    """
+    def get_impl(self):
+        return coder_impl.TimeWindowCoderImpl()
+
+
+class CountWindowCoder(BaseCoder):
+    """
+    Coder for CountWindow.
+    """
+    def get_impl(self):
+        return coder_impl.CountWindowCoderImpl()
 
 
 class FieldCoder(ABC):
@@ -589,7 +606,7 @@ _type_info_name_mappings = {
     type_info_name.BIG_DEC: BigDecimalCoder(),
     type_info_name.SQL_DATE: DateCoder(),
     type_info_name.SQL_TIME: TimeCoder(),
-    type_info_name.SQL_TIMESTAMP: TimeCoder(),
+    type_info_name.SQL_TIMESTAMP: TimestampCoder(3),
     type_info_name.PICKLED_BYTES: PickledBytesCoder()
 }
 

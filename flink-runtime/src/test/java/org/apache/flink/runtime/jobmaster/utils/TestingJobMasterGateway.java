@@ -30,7 +30,6 @@ import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
 import org.apache.flink.runtime.clusterframework.types.AllocationID;
 import org.apache.flink.runtime.clusterframework.types.ResourceID;
 import org.apache.flink.runtime.execution.ExecutionState;
-import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
@@ -48,7 +47,7 @@ import org.apache.flink.runtime.operators.coordination.OperatorEvent;
 import org.apache.flink.runtime.query.KvStateLocation;
 import org.apache.flink.runtime.registration.RegistrationResponse;
 import org.apache.flink.runtime.resourcemanager.ResourceManagerId;
-import org.apache.flink.runtime.rest.handler.legacy.backpressure.OperatorBackPressureStatsResponse;
+import org.apache.flink.runtime.scheduler.ExecutionGraphInfo;
 import org.apache.flink.runtime.slots.ResourceRequirement;
 import org.apache.flink.runtime.state.KeyGroupRange;
 import org.apache.flink.runtime.taskexecutor.TaskExecutorToJobManagerHeartbeatPayload;
@@ -124,17 +123,13 @@ public class TestingJobMasterGateway implements JobMasterGateway {
 
     @Nonnull private final Supplier<CompletableFuture<JobDetails>> requestJobDetailsSupplier;
 
-    @Nonnull private final Supplier<CompletableFuture<ArchivedExecutionGraph>> requestJobSupplier;
+    @Nonnull private final Supplier<CompletableFuture<ExecutionGraphInfo>> requestJobSupplier;
 
     @Nonnull
     private final BiFunction<String, Boolean, CompletableFuture<String>> triggerSavepointFunction;
 
     @Nonnull
     private final BiFunction<String, Boolean, CompletableFuture<String>> stopWithSavepointFunction;
-
-    @Nonnull
-    private final Function<JobVertexID, CompletableFuture<OperatorBackPressureStatsResponse>>
-            requestOperatorBackPressureStatsFunction;
 
     @Nonnull private final BiConsumer<AllocationID, Throwable> notifyAllocationFailureConsumer;
 
@@ -226,15 +221,12 @@ public class TestingJobMasterGateway implements JobMasterGateway {
                             taskManagerHeartbeatConsumer,
             @Nonnull Consumer<ResourceID> resourceManagerHeartbeatConsumer,
             @Nonnull Supplier<CompletableFuture<JobDetails>> requestJobDetailsSupplier,
-            @Nonnull Supplier<CompletableFuture<ArchivedExecutionGraph>> requestJobSupplier,
+            @Nonnull Supplier<CompletableFuture<ExecutionGraphInfo>> requestJobSupplier,
             @Nonnull
                     BiFunction<String, Boolean, CompletableFuture<String>> triggerSavepointFunction,
             @Nonnull
                     BiFunction<String, Boolean, CompletableFuture<String>>
                             stopWithSavepointFunction,
-            @Nonnull
-                    Function<JobVertexID, CompletableFuture<OperatorBackPressureStatsResponse>>
-                            requestOperatorBackPressureStatsFunction,
             @Nonnull BiConsumer<AllocationID, Throwable> notifyAllocationFailureConsumer,
             @Nonnull
                     Consumer<
@@ -301,7 +293,6 @@ public class TestingJobMasterGateway implements JobMasterGateway {
         this.requestJobSupplier = requestJobSupplier;
         this.triggerSavepointFunction = triggerSavepointFunction;
         this.stopWithSavepointFunction = stopWithSavepointFunction;
-        this.requestOperatorBackPressureStatsFunction = requestOperatorBackPressureStatsFunction;
         this.notifyAllocationFailureConsumer = notifyAllocationFailureConsumer;
         this.acknowledgeCheckpointConsumer = acknowledgeCheckpointConsumer;
         this.declineCheckpointConsumer = declineCheckpointConsumer;
@@ -397,7 +388,7 @@ public class TestingJobMasterGateway implements JobMasterGateway {
     }
 
     @Override
-    public CompletableFuture<ArchivedExecutionGraph> requestJob(Time timeout) {
+    public CompletableFuture<ExecutionGraphInfo> requestJob(Time timeout) {
         return requestJobSupplier.get();
     }
 
@@ -409,16 +400,8 @@ public class TestingJobMasterGateway implements JobMasterGateway {
 
     @Override
     public CompletableFuture<String> stopWithSavepoint(
-            @Nullable final String targetDirectory,
-            final boolean advanceToEndOfEventTime,
-            final Time timeout) {
-        return stopWithSavepointFunction.apply(targetDirectory, advanceToEndOfEventTime);
-    }
-
-    @Override
-    public CompletableFuture<OperatorBackPressureStatsResponse> requestOperatorBackPressureStats(
-            JobVertexID jobVertexId) {
-        return requestOperatorBackPressureStatsFunction.apply(jobVertexId);
+            @Nullable final String targetDirectory, final boolean terminate, final Time timeout) {
+        return stopWithSavepointFunction.apply(targetDirectory, terminate);
     }
 
     @Override
@@ -448,6 +431,13 @@ public class TestingJobMasterGateway implements JobMasterGateway {
     public void declineCheckpoint(DeclineCheckpoint declineCheckpoint) {
         declineCheckpointConsumer.accept(declineCheckpoint);
     }
+
+    @Override
+    public void reportCheckpointMetrics(
+            JobID jobID,
+            ExecutionAttemptID executionAttemptID,
+            long checkpointId,
+            CheckpointMetrics checkpointMetrics) {}
 
     @Override
     public JobMasterId getFencingToken() {

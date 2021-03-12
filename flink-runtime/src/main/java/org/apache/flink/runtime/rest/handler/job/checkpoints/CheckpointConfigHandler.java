@@ -24,7 +24,7 @@ import org.apache.flink.runtime.executiongraph.AccessExecutionGraph;
 import org.apache.flink.runtime.jobgraph.tasks.CheckpointCoordinatorConfiguration;
 import org.apache.flink.runtime.rest.handler.HandlerRequest;
 import org.apache.flink.runtime.rest.handler.RestHandlerException;
-import org.apache.flink.runtime.rest.handler.job.AbstractExecutionGraphHandler;
+import org.apache.flink.runtime.rest.handler.job.AbstractAccessExecutionGraphHandler;
 import org.apache.flink.runtime.rest.handler.legacy.ExecutionGraphCache;
 import org.apache.flink.runtime.rest.messages.EmptyRequestBody;
 import org.apache.flink.runtime.rest.messages.ErrorResponseBody;
@@ -49,7 +49,7 @@ import java.util.concurrent.Executor;
 
 /** Handler which serves the checkpoint configuration. */
 public class CheckpointConfigHandler
-        extends AbstractExecutionGraphHandler<CheckpointConfigInfo, JobMessageParameters>
+        extends AbstractAccessExecutionGraphHandler<CheckpointConfigInfo, JobMessageParameters>
         implements JsonArchivist {
 
     public CheckpointConfigHandler(
@@ -116,6 +116,7 @@ public class CheckpointConfigHandler
                             retentionPolicy != CheckpointRetentionPolicy.RETAIN_ON_CANCELLATION);
 
             String stateBackendName = executionGraph.getStateBackendName().orElse(null);
+            String checkpointStorageName = executionGraph.getCheckpointStorageName().orElse(null);
 
             return new CheckpointConfigInfo(
                     checkpointCoordinatorConfiguration.isExactlyOnce()
@@ -127,6 +128,7 @@ public class CheckpointConfigHandler
                     checkpointCoordinatorConfiguration.getMaxConcurrentCheckpoints(),
                     externalizedCheckpointInfo,
                     stateBackendName,
+                    checkpointStorageName,
                     checkpointCoordinatorConfiguration.isUnalignedCheckpointsEnabled(),
                     checkpointCoordinatorConfiguration.getTolerableCheckpointFailureNumber());
         }

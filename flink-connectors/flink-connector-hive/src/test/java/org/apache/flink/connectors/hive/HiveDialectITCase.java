@@ -24,12 +24,15 @@ import org.apache.flink.table.api.SqlDialect;
 import org.apache.flink.table.api.TableEnvironment;
 import org.apache.flink.table.api.TableException;
 import org.apache.flink.table.api.TableSchema;
+import org.apache.flink.table.api.internal.TableEnvironmentInternal;
 import org.apache.flink.table.catalog.CatalogPartitionSpec;
+import org.apache.flink.table.catalog.CatalogPropertiesUtil;
 import org.apache.flink.table.catalog.CatalogTable;
 import org.apache.flink.table.catalog.ObjectPath;
-import org.apache.flink.table.catalog.config.CatalogConfig;
 import org.apache.flink.table.catalog.hive.HiveCatalog;
 import org.apache.flink.table.catalog.hive.HiveTestUtils;
+import org.apache.flink.table.delegation.Parser;
+import org.apache.flink.table.planner.delegation.hive.HiveParser;
 import org.apache.flink.types.Row;
 import org.apache.flink.util.CollectionUtil;
 import org.apache.flink.util.FileUtils;
@@ -65,6 +68,8 @@ import static org.apache.flink.table.api.EnvironmentSettings.DEFAULT_BUILTIN_CAT
 import static org.apache.flink.table.api.EnvironmentSettings.DEFAULT_BUILTIN_DATABASE;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 /** Test Hive syntax when Hive dialect is used. */
@@ -100,11 +105,26 @@ public class HiveDialectITCase {
     }
 
     @Test
+    public void testPluggableParser() {
+        TableEnvironmentInternal tableEnvInternal = (TableEnvironmentInternal) tableEnv;
+        Parser parser = tableEnvInternal.getParser();
+        // hive dialect should use HiveParser
+        assertTrue(parser instanceof HiveParser);
+        // execute some sql and verify the parser instance is reused
+        tableEnvInternal.executeSql("show databases");
+        assertSame(parser, tableEnvInternal.getParser());
+        // switching dialect will result in a new parser
+        tableEnvInternal.getConfig().setSqlDialect(SqlDialect.DEFAULT);
+        assertNotEquals(
+                parser.getClass().getName(), tableEnvInternal.getParser().getClass().getName());
+    }
+
+    @Test
     public void testCreateDatabase() throws Exception {
         tableEnv.executeSql("create database db1 comment 'db1 comment'");
         Database db = hiveCatalog.getHiveDatabase("db1");
         assertEquals("db1 comment", db.getDescription());
-        assertFalse(Boolean.parseBoolean(db.getParameters().get(CatalogConfig.IS_GENERIC)));
+        assertFalse(Boolean.parseBoolean(db.getParameters().get(CatalogPropertiesUtil.IS_GENERIC)));
 
         String db2Location = warehouse + "/db2_location";
         tableEnv.executeSql(
@@ -248,26 +268,27 @@ public class HiveDialectITCase {
         tableEnv.executeSql("create table dest (x int)");
         tableEnv.executeSql("insert into dest select x from src").await();
         List<Row> results = queryResult(tableEnv.sqlQuery("select * from dest"));
-        assertEquals("[1, 2, 3]", results.toString());
+        assertEquals("[+I[1], +I[2], +I[3]]", results.toString());
         tableEnv.executeSql("insert overwrite dest values (3),(4),(5)").await();
         results = queryResult(tableEnv.sqlQuery("select * from dest"));
-        assertEquals("[3, 4, 5]", results.toString());
+        assertEquals("[+I[3], +I[4], +I[5]]", results.toString());
 
         // partitioned dest table
         tableEnv.executeSql("create table dest2 (x int) partitioned by (p1 int,p2 string)");
         tableEnv.executeSql("insert into dest2 partition (p1=0,p2='static') select x from src")
                 .await();
         results = queryResult(tableEnv.sqlQuery("select * from dest2 order by x,p1,p2"));
-        assertEquals("[1,0,static, 2,0,static, 3,0,static]", results.toString());
+        assertEquals("[+I[1, 0, static], +I[2, 0, static], +I[3, 0, static]]", results.toString());
         tableEnv.executeSql("insert into dest2 partition (p1=1,p2) select x,y from src").await();
         results = queryResult(tableEnv.sqlQuery("select * from dest2 order by x,p1,p2"));
         assertEquals(
-                "[1,0,static, 1,1,a, 2,0,static, 2,1,b, 3,0,static, 3,1,c]", results.toString());
+                "[+I[1, 0, static], +I[1, 1, a], +I[2, 0, static], +I[2, 1, b], +I[3, 0, static], +I[3, 1, c]]",
+                results.toString());
         tableEnv.executeSql("insert overwrite dest2 partition (p1,p2) select 1,x,y from src")
                 .await();
         results = queryResult(tableEnv.sqlQuery("select * from dest2 order by x,p1,p2"));
         assertEquals(
-                "[1,0,static, 1,1,a, 1,2,b, 1,3,c, 2,0,static, 2,1,b, 3,0,static, 3,1,c]",
+                "[+I[1, 0, static], +I[1, 1, a], +I[1, 2, b], +I[1, 3, c], +I[2, 0, static], +I[2, 1, b], +I[3, 0, static], +I[3, 1, c]]",
                 results.toString());
     }
 
@@ -510,7 +531,8 @@ public class HiveDialectITCase {
         tableEnv.executeSql("create table src(x int)");
         tableEnv.executeSql("insert into src values (1),(-1)").await();
         assertEquals(
-                "[1, 1]", queryResult(tableEnv.sqlQuery("select my_abs(x) from src")).toString());
+                "[+I[1], +I[1]]",
+                queryResult(tableEnv.sqlQuery("select my_abs(x) from src")).toString());
         // drop the function
         tableEnv.executeSql("drop function my_abs");
         assertFalse(hiveCatalog.functionExists(new ObjectPath("default", "my_abs")));
@@ -526,13 +548,13 @@ public class HiveDialectITCase {
         List<Row> databases =
                 CollectionUtil.iteratorToList(tableEnv.executeSql("show databases").collect());
         assertEquals(1, databases.size());
-        assertEquals(DEFAULT_BUILTIN_DATABASE, databases.get(0).toString());
+        assertEquals("+I[" + DEFAULT_BUILTIN_DATABASE + "]", databases.get(0).toString());
         String catalogName =
                 tableEnv.executeSql("show current catalog").collect().next().toString();
-        assertEquals(DEFAULT_BUILTIN_CATALOG, catalogName);
+        assertEquals("+I[" + DEFAULT_BUILTIN_CATALOG + "]", catalogName);
         String databaseName =
                 tableEnv.executeSql("show current database").collect().next().toString();
-        assertEquals(DEFAULT_BUILTIN_DATABASE, databaseName);
+        assertEquals("+I[" + DEFAULT_BUILTIN_DATABASE + "]", databaseName);
     }
 
     @Test

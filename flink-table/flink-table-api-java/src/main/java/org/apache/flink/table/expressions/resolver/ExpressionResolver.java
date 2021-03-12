@@ -93,6 +93,7 @@ public class ExpressionResolver {
                 ResolverRules.OVER_WINDOWS,
                 ResolverRules.FIELD_RESOLVE,
                 ResolverRules.QUALIFY_BUILT_IN_FUNCTIONS,
+                ResolverRules.RESOLVE_SQL_CALL,
                 ResolverRules.RESOLVE_CALL_BY_ARGUMENTS);
     }
 
@@ -109,6 +110,8 @@ public class ExpressionResolver {
 
     private final DataTypeFactory typeFactory;
 
+    private final SqlExpressionResolver sqlExpressionResolver;
+
     private final PostResolverFactory postResolverFactory = new PostResolverFactory();
 
     private final Map<String, LocalReferenceExpression> localReferences;
@@ -120,6 +123,7 @@ public class ExpressionResolver {
             TableReferenceLookup tableLookup,
             FunctionLookup functionLookup,
             DataTypeFactory typeFactory,
+            SqlExpressionResolver sqlExpressionResolver,
             FieldReferenceLookup fieldLookup,
             List<OverWindow> localOverWindows,
             List<LocalReferenceExpression> localReferences) {
@@ -128,6 +132,7 @@ public class ExpressionResolver {
         this.fieldLookup = Preconditions.checkNotNull(fieldLookup);
         this.functionLookup = Preconditions.checkNotNull(functionLookup);
         this.typeFactory = Preconditions.checkNotNull(typeFactory);
+        this.sqlExpressionResolver = Preconditions.checkNotNull(sqlExpressionResolver);
 
         this.localReferences =
                 localReferences.stream()
@@ -154,9 +159,10 @@ public class ExpressionResolver {
             TableReferenceLookup tableCatalog,
             FunctionLookup functionLookup,
             DataTypeFactory typeFactory,
+            SqlExpressionResolver sqlExpressionResolver,
             QueryOperation... inputs) {
         return new ExpressionResolverBuilder(
-                inputs, config, tableCatalog, functionLookup, typeFactory);
+                inputs, config, tableCatalog, functionLookup, typeFactory, sqlExpressionResolver);
     }
 
     /**
@@ -287,6 +293,10 @@ public class ExpressionResolver {
             return typeFactory;
         }
 
+        public SqlExpressionResolver sqlExpressionResolver() {
+            return sqlExpressionResolver;
+        }
+
         @Override
         public PostResolverFactory postResolutionFactory() {
             return postResolverFactory;
@@ -295,6 +305,11 @@ public class ExpressionResolver {
         @Override
         public Optional<LocalReferenceExpression> getLocalReference(String alias) {
             return Optional.ofNullable(localReferences.get(alias));
+        }
+
+        @Override
+        public List<LocalReferenceExpression> getLocalReferences() {
+            return new ArrayList<>(localReferences.values());
         }
 
         @Override
@@ -409,6 +424,7 @@ public class ExpressionResolver {
         private final TableReferenceLookup tableCatalog;
         private final FunctionLookup functionLookup;
         private final DataTypeFactory typeFactory;
+        private final SqlExpressionResolver sqlExpressionResolver;
         private List<OverWindow> logicalOverWindows = new ArrayList<>();
         private List<LocalReferenceExpression> localReferences = new ArrayList<>();
 
@@ -417,12 +433,14 @@ public class ExpressionResolver {
                 TableConfig config,
                 TableReferenceLookup tableCatalog,
                 FunctionLookup functionLookup,
-                DataTypeFactory typeFactory) {
+                DataTypeFactory typeFactory,
+                SqlExpressionResolver sqlExpressionResolver) {
             this.config = config;
             this.queryOperations = Arrays.asList(queryOperations);
             this.tableCatalog = tableCatalog;
             this.functionLookup = functionLookup;
             this.typeFactory = typeFactory;
+            this.sqlExpressionResolver = sqlExpressionResolver;
         }
 
         public ExpressionResolverBuilder withOverWindows(List<OverWindow> windows) {
@@ -432,7 +450,7 @@ public class ExpressionResolver {
 
         public ExpressionResolverBuilder withLocalReferences(
                 LocalReferenceExpression... localReferences) {
-            this.localReferences.addAll(Arrays.asList(localReferences));
+            this.localReferences = Arrays.asList(localReferences);
             return this;
         }
 
@@ -442,6 +460,7 @@ public class ExpressionResolver {
                     tableCatalog,
                     functionLookup,
                     typeFactory,
+                    sqlExpressionResolver,
                     new FieldReferenceLookup(queryOperations),
                     logicalOverWindows,
                     localReferences);

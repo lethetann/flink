@@ -30,6 +30,7 @@ import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.CheckpointType;
+import org.apache.flink.runtime.checkpoint.CheckpointType.PostCheckpointAction;
 import org.apache.flink.runtime.checkpoint.JobManagerTaskRestore;
 import org.apache.flink.runtime.clusterframework.types.AllocationID;
 import org.apache.flink.runtime.clusterframework.types.ResourceID;
@@ -73,7 +74,6 @@ import org.apache.flink.runtime.leaderretrieval.LeaderRetrievalService;
 import org.apache.flink.runtime.management.JMXService;
 import org.apache.flink.runtime.memory.MemoryManager;
 import org.apache.flink.runtime.messages.Acknowledge;
-import org.apache.flink.runtime.messages.TaskBackPressureResponse;
 import org.apache.flink.runtime.metrics.MetricNames;
 import org.apache.flink.runtime.metrics.groups.TaskManagerMetricGroup;
 import org.apache.flink.runtime.metrics.groups.TaskMetricGroup;
@@ -91,7 +91,6 @@ import org.apache.flink.runtime.rest.messages.taskmanager.ThreadDumpInfo;
 import org.apache.flink.runtime.rpc.FatalErrorHandler;
 import org.apache.flink.runtime.rpc.RpcEndpoint;
 import org.apache.flink.runtime.rpc.RpcService;
-import org.apache.flink.runtime.rpc.RpcTimeout;
 import org.apache.flink.runtime.rpc.akka.AkkaRpcServiceUtils;
 import org.apache.flink.runtime.shuffle.ShuffleDescriptor;
 import org.apache.flink.runtime.shuffle.ShuffleEnvironment;
@@ -242,8 +241,6 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
 
     private final TaskExecutorPartitionTracker partitionTracker;
 
-    private final BackPressureSampleService backPressureSampleService;
-
     // --------- resource manager --------
 
     @Nullable private ResourceManagerAddress resourceManagerAddress;
@@ -268,8 +265,7 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
             @Nullable String metricQueryServiceAddress,
             BlobCacheService blobCacheService,
             FatalErrorHandler fatalErrorHandler,
-            TaskExecutorPartitionTracker partitionTracker,
-            BackPressureSampleService backPressureSampleService) {
+            TaskExecutorPartitionTracker partitionTracker) {
 
         super(rpcService, AkkaRpcServiceUtils.createRandomName(TASK_MANAGER_NAME));
 
@@ -285,7 +281,6 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
         this.taskManagerMetricGroup = checkNotNull(taskManagerMetricGroup);
         this.blobCacheService = checkNotNull(blobCacheService);
         this.metricQueryServiceAddress = metricQueryServiceAddress;
-        this.backPressureSampleService = checkNotNull(backPressureSampleService);
         this.externalResourceInfoProvider = checkNotNull(externalResourceInfoProvider);
 
         this.libraryCacheManager = taskExecutorServices.getLibraryCacheManager();
@@ -502,28 +497,6 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
     //  RPC methods
     // ======================================================================
 
-    @Override
-    public CompletableFuture<TaskBackPressureResponse> requestTaskBackPressure(
-            ExecutionAttemptID executionAttemptId, int requestId, @RpcTimeout Time timeout) {
-
-        final Task task = taskSlotTable.getTask(executionAttemptId);
-        if (task == null) {
-            return FutureUtils.completedExceptionally(
-                    new IllegalStateException(
-                            String.format(
-                                    "Cannot request back pressure of task %s. "
-                                            + "Task is not known to the task manager.",
-                                    executionAttemptId)));
-        }
-        final CompletableFuture<Double> backPressureRatioFuture =
-                backPressureSampleService.sampleTaskBackPressure(task);
-
-        return backPressureRatioFuture.thenApply(
-                backPressureRatio ->
-                        new TaskBackPressureResponse(
-                                requestId, executionAttemptId, backPressureRatio));
-    }
-
     // ----------------------------------------------------------------------
     // Task lifecycle RPCs
     // ----------------------------------------------------------------------
@@ -620,7 +593,7 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
                             jobManagerConnection.getJobManagerGateway(),
                             taskInformation.getJobVertexId(),
                             tdd.getExecutionAttemptId(),
-                            taskManagerConfiguration.getTimeout());
+                            taskManagerConfiguration.getRpcTimeout());
 
             final TaskOperatorEventGateway taskOperatorEventGateway =
                     new RpcTaskOperatorEventGateway(
@@ -674,7 +647,6 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
                             tdd.getAttemptNumber(),
                             tdd.getProducedPartitions(),
                             tdd.getInputGates(),
-                            tdd.getTargetSlotNumber(),
                             memoryManager,
                             taskExecutorServices.getIOManager(),
                             taskExecutorServices.getShuffleEnvironment(),
@@ -896,8 +868,7 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
             ExecutionAttemptID executionAttemptID,
             long checkpointId,
             long checkpointTimestamp,
-            CheckpointOptions checkpointOptions,
-            boolean advanceToEndOfEventTime) {
+            CheckpointOptions checkpointOptions) {
         log.debug(
                 "Trigger checkpoint {}@{} for {}.",
                 checkpointId,
@@ -905,7 +876,7 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
                 executionAttemptID);
 
         final CheckpointType checkpointType = checkpointOptions.getCheckpointType();
-        if (advanceToEndOfEventTime
+        if (checkpointType.getPostCheckpointAction() == PostCheckpointAction.TERMINATE
                 && !(checkpointType.isSynchronous() && checkpointType.isSavepoint())) {
             throw new IllegalArgumentException(
                     "Only synchronous savepoints are allowed to advance the watermark to MAX.");
@@ -914,8 +885,7 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
         final Task task = taskSlotTable.getTask(executionAttemptID);
 
         if (task != null) {
-            task.triggerCheckpointBarrier(
-                    checkpointId, checkpointTimestamp, checkpointOptions, advanceToEndOfEventTime);
+            task.triggerCheckpointBarrier(checkpointId, checkpointTimestamp, checkpointOptions);
 
             return CompletableFuture.completedFuture(Acknowledge.get());
         } else {
@@ -1081,7 +1051,7 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
                     jobId,
                     allocationId,
                     resourceProfile,
-                    taskManagerConfiguration.getTimeout())) {
+                    taskManagerConfiguration.getSlotTimeout())) {
                 log.info("Allocated slot for {}.", allocationId);
             } else {
                 log.info("Could not allocate slot for {}.", allocationId);
@@ -1294,7 +1264,7 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
                         getResourceID(),
                         taskExecutorRegistrationId,
                         taskSlotTable.createSlotReport(getResourceID()),
-                        taskManagerConfiguration.getTimeout());
+                        taskManagerConfiguration.getRpcTimeout());
 
         slotReportResponseFuture.whenCompleteAsync(
                 (acknowledge, throwable) -> {
@@ -1440,7 +1410,9 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
 
             CompletableFuture<Collection<SlotOffer>> acceptedSlotsFuture =
                     jobMasterGateway.offerSlots(
-                            getResourceID(), reservedSlots, taskManagerConfiguration.getTimeout());
+                            getResourceID(),
+                            reservedSlots,
+                            taskManagerConfiguration.getRpcTimeout());
 
             acceptedSlotsFuture.whenCompleteAsync(
                     handleAcceptedSlotOffers(jobId, jobMasterGateway, jobMasterId, reservedSlots),
@@ -1610,7 +1582,7 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
         for (AllocationID activeSlotAllocationID : activeSlotAllocationIDs) {
             try {
                 if (!taskSlotTable.markSlotInactive(
-                        activeSlotAllocationID, taskManagerConfiguration.getTimeout())) {
+                        activeSlotAllocationID, taskManagerConfiguration.getSlotTimeout())) {
                     freeSlotInternal(activeSlotAllocationID, freeingCause);
                 }
             } catch (SlotNotFoundException e) {
@@ -1646,7 +1618,7 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
                 new RpcResultPartitionConsumableNotifier(
                         jobMasterGateway,
                         getRpcService().getExecutor(),
-                        taskManagerConfiguration.getTimeout());
+                        taskManagerConfiguration.getRpcTimeout());
 
         PartitionProducerStateChecker partitionStateChecker =
                 new RpcPartitionStateChecker(jobMasterGateway);
@@ -1778,7 +1750,6 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
             updateTaskExecutionState(
                     jobMasterGateway,
                     new TaskExecutionState(
-                            task.getJobID(),
                             task.getExecutionId(),
                             task.getExecutionState(),
                             task.getFailureCause(),
